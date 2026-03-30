@@ -1,0 +1,213 @@
+<div class="container-fluid px-3 py-2">
+
+  <!-- Filter Bar -->
+  <div class="card shadow-sm mb-3 border-0" style="background:linear-gradient(135deg,#1e3c72,#2a5298);border-radius:12px;">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-center">
+        <div class="col-auto">
+          <span class="text-white fw-bold"><i class="bi bi-bar-chart-fill"></i> Dashboard</span>
+        </div>
+        <!-- Period Tabs -->
+        <div class="col-auto">
+          <div class="btn-group btn-group-sm" id="periodTabGroup">
+            <button class="btn btn-light btn-sm" onclick="setPeriod('week')">สัปดาห์</button>
+            <button class="btn btn-light btn-sm active" onclick="setPeriod('month')">เดือน</button>
+            <button class="btn btn-light btn-sm" onclick="setPeriod('year')">ปี</button>
+            <button class="btn btn-light btn-sm" onclick="setPeriod('custom')">กำหนดเอง</button>
+          </div>
+        </div>
+        <!-- Custom Date Range -->
+        <div class="col-auto" id="customDateRange" style="display:none;">
+          <input type="date" id="dash_dateFrom" class="form-control form-control-sm" style="width:130px;display:inline-block;" onchange="loadDashboard()">
+          <span class="text-white mx-1">→</span>
+          <input type="date" id="dash_dateTo" class="form-control form-control-sm" style="width:130px;display:inline-block;" onchange="loadDashboard()">
+        </div>
+        <!-- Dept -->
+        <div class="col-auto">
+          <select id="dash_dept" class="form-select form-select-sm" style="width:120px;" onchange="onDeptChange()">
+          <option value="">ทุกแผนก</option>
+          </select>
+        </div>
+        <!-- Staff -->
+        <div class="col-auto">
+          <select id="dash_staff" class="form-select form-select-sm" style="width:130px;" onchange="loadDashboard()">
+            <option value="">ทุก Staff</option>
+          </select>
+        </div>
+        <!-- Customer -->
+        <div class="col-auto">
+          <select id="dash_cust" class="form-select form-select-sm" style="width:150px;" onchange="loadDashboard()">
+            <option value="">ทุกลูกค้า</option>
+          </select>
+        </div>
+        <!-- Job Type -->
+        <div class="col-auto">
+          <select id="dash_jobType" class="form-select form-select-sm" style="width:150px;" onchange="loadDashboard()">
+            <option value="">ทุกประเภท</option>
+          </select>
+        </div>
+        <!-- Reset + Refresh -->
+        <div class="col-auto ms-auto d-flex gap-2">
+          <button class="btn btn-outline-light btn-sm" onclick="resetDashFilter()">
+            <i class="bi bi-x-circle"></i> Reset
+          </button>
+          <button class="btn btn-light btn-sm" onclick="loadDashboard()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Filter Badge Row -->
+      <div class="mt-2 ps-1" id="dashFilterBadge">
+        <span class="text-white-50 small">ดูข้อมูลทั้งหมด</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="dashLoading" class="text-center py-5" style="display:none;">
+    <div class="spinner-border text-primary"></div>
+    <div class="text-muted mt-2">กำลังโหลดข้อมูล...</div>
+  </div>
+
+  <div id="dashContent">
+    <!-- KPI Cards -->
+    <div class="row g-3 mb-3">
+      <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;background:linear-gradient(135deg,#667eea,#764ba2);">
+          <div class="card-body text-white text-center py-3">
+            <div class="fs-1 fw-bold" id="kpi_total">-</div>
+            <div class="small opacity-75">งานทั้งหมด</div>
+            <i class="bi bi-briefcase-fill fs-4 opacity-50"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;background:linear-gradient(135deg,#f093fb,#f5576c);">
+          <div class="card-body text-white text-center py-3">
+            <div class="fs-1 fw-bold" id="kpi_new">-</div>
+            <div class="small opacity-75">งานใหม่</div>
+            <i class="bi bi-plus-circle-fill fs-4 opacity-50"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;background:linear-gradient(135deg,#4facfe,#00f2fe);">
+          <div class="card-body text-white text-center py-3">
+            <div class="fs-1 fw-bold" id="kpi_inprog">-</div>
+            <div class="small opacity-75">กำลังดำเนินการ</div>
+            <i class="bi bi-arrow-repeat fs-4 opacity-50"></i>
+          </div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;background:linear-gradient(135deg,#43e97b,#38f9d7);">
+          <div class="card-body text-white text-center py-3">
+            <div class="fs-1 fw-bold" id="kpi_done">-</div>
+            <div class="small opacity-75">เสร็จสิ้น</div>
+            <i class="bi bi-check-circle-fill fs-4 opacity-50"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 1: Trend + Job Type -->
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-lg-8">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="fw-bold"><i class="bi bi-graph-up text-primary"></i> แนวโน้มงาน</span>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary btn-sm active" id="trendBtn_day" onclick="setTrendMode('day')">รายวัน</button>
+                <button class="btn btn-outline-primary btn-sm" id="trendBtn_week" onclick="setTrendMode('week')">รายสัปดาห์</button>
+                <button class="btn btn-outline-primary btn-sm" id="trendBtn_month" onclick="setTrendMode('month')">รายเดือน</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body pt-2">
+            <canvas id="chartTrend" height="120"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <span class="fw-bold"><i class="bi bi-pie-chart-fill text-warning"></i> ประเภทงาน</span>
+          </div>
+          <div class="card-body pt-2 d-flex align-items-center justify-content-center">
+            <canvas id="chartJobType" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: Staff Bar + Dept Doughnut -->
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-lg-8">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <span class="fw-bold" id="staffChartTitle"><i class="bi bi-people-fill text-success"></i> ปริมาณงานแต่ละคน</span>
+          </div>
+          <div class="card-body pt-2">
+            <canvas id="chartStaff" height="140"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <span class="fw-bold"><i class="bi bi-diagram-3-fill text-info"></i> งานแต่ละแผนก</span>
+          </div>
+          <div class="card-body pt-2 d-flex align-items-center justify-content-center">
+            <canvas id="chartDept" height="200"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Customer Bar -->
+    <div class="row g-3 mb-3">
+      <div class="col-12">
+        <div class="card border-0 shadow-sm" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="fw-bold" id="custChartTitle"><i class="bi bi-building text-danger"></i> ปริมาณงานแต่ละลูกค้า</span>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-danger btn-sm active" id="custBtn_all" onclick="setCustMode('all')">ภาพรวม</button>
+                <button class="btn btn-outline-danger btn-sm" id="custBtn_type" onclick="setCustMode('type')">แยกประเภท</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body pt-2">
+            <canvas id="chartCust" height="80"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: Heatmap + Ranking -->
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-lg-7">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <span class="fw-bold" id="heatmapTitle"><i class="bi bi-grid-3x3-gap-fill text-secondary"></i> Heatmap — Staff × วันในสัปดาห์</span>
+          </div>
+          <div class="card-body pt-2 overflow-auto">
+            <div id="heatmapTable"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-5">
+        <div class="card border-0 shadow-sm h-100" style="border-radius:12px;">
+          <div class="card-header bg-white border-0 pb-0 pt-3 px-3">
+            <span class="fw-bold" id="rankingTitle"><i class="bi bi-trophy-fill text-warning"></i> Staff Ranking</span>
+          </div>
+          <div class="card-body pt-2 overflow-auto" style="max-height:320px;">
+            <div id="staffRankingTable"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /dashContent -->
+</div>

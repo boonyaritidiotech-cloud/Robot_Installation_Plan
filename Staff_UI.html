@@ -1,0 +1,60 @@
+<div class="card p-3" style="max-width:1100px; margin:0 auto;">
+
+  <!-- Admin View -->
+  <div id="todoAdminFilter" style="display:none;">
+    <h5 class="fw-bold text-primary mb-3"><i class="bi bi-list-task"></i> งานทั้งหมด</h5>
+    <div class="row g-2 mb-3">
+      <div class="col-md-3">
+        <select id="filterStaffSelect" class="form-select form-select-sm" onchange="loadTodoByFilter()">
+          <option value="">-- ดูทุกคน --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select id="filterStatusSelect" class="form-select form-select-sm" onchange="loadTodoByFilter()">
+          <option value="">-- ทุกสถานะ --</option>
+          <option value="งานใหม่">งานใหม่</option>
+          <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+          <option value="เสร็จสิ้น">เสร็จสิ้น</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select id="filterMineSelect" class="form-select form-select-sm" onchange="loadTodoByFilter()">
+          <option value="">-- ทั้งหมด --</option>
+          <option value="mine">งานของฉัน</option>
+          <option value="others">งานคนอื่น</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-outline-secondary btn-sm w-100" onclick="loadUserTasks()">
+          <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary badges -->
+    <div id="todoSummary" class="mb-3 d-flex gap-2 flex-wrap"></div>
+  </div>
+
+  <!-- Staff View -->
+  <div id="todoStaffHeader" style="display:none;">
+    <h5 class="fw-bold text-primary mb-3"><i class="bi bi-list-check"></i> MY TO-DO LIST</h5>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-hover small align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>ลูกค้า / วันที่</th>
+          <th>ประเภทงาน</th>
+          <th>หุ่นยนต์</th>
+          <th id="staffColHeader">Staff</th>
+          <th>สถานะ</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="userJobBody">
+        <tr><td colspan="6" class="text-center text-muted py-3">กำลังโหลด...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

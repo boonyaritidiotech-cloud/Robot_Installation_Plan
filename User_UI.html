@@ -1,0 +1,151 @@
+<div class="row g-3">
+
+  <!-- สร้าง Role ใหม่ -->
+  <div class="col-12">
+    <div class="card p-4 shadow-sm border-0" style="border-radius: 15px;">
+      <h6 class="fw-bold text-success mb-3"><i class="bi bi-shield-plus"></i> สร้าง Role ใหม่</h6>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="small fw-bold text-secondary">ชื่อ Role</label>
+          <input type="text" id="newRoleName" class="form-control form-control-sm" placeholder="เช่น Technician">
+        </div>
+        <div class="col-md-7">
+          <label class="small fw-bold text-secondary">สิทธิ์การเข้าถึงหน้า</label>
+          <div id="rolePermCheckboxes" class="d-flex flex-wrap gap-3 border rounded p-2 bg-light"></div>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-success btn-sm w-100" onclick="submitCreateRole()">
+            <i class="bi bi-plus-circle"></i> สร้าง Role
+          </button>
+        </div>
+      </div>
+      <div id="roleMsg" class="mt-2 small"></div>
+      <hr class="my-3">
+      <h6 class="fw-bold text-secondary small mb-2"><i class="bi bi-shield-check"></i> Role ทั้งหมดในระบบ</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover small align-middle">
+          <thead class="table-light"><tr id="roleTableHeader"></tr></thead>
+          <tbody id="roleTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal แก้ไข Role -->
+  <div class="modal fade" id="editRoleModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-warning">
+          <h6 class="modal-title fw-bold"><i class="bi bi-pencil-square"></i> แก้ไข Role: <span id="editRoleName"></span></h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <label class="small fw-bold text-secondary mb-2">สิทธิ์การเข้าถึงหน้า</label>
+          <div id="editRolePermCheckboxes" class="d-flex flex-wrap gap-3 border rounded p-3 bg-light"></div>
+          <div id="editRoleMsg" class="mt-2 small"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-danger btn-sm me-auto" onclick="confirmDeleteRole()"><i class="bi bi-trash3"></i> ลบ Role</button>
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+          <button class="btn btn-warning btn-sm fw-bold" onclick="submitUpdateRole()"><i class="bi bi-save-fill"></i> บันทึก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- สร้าง User ใหม่ -->
+  <div class="col-lg-4">
+    <div class="card p-4 shadow-sm border-0" style="border-radius: 15px;">
+      <h6 class="fw-bold text-primary mb-3"><i class="bi bi-person-plus-fill"></i> สร้าง User ใหม่</h6>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">ชื่อ-นามสกุล</label>
+        <input type="text" id="newFullname" class="form-control form-control-sm" placeholder="Full Name">
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">Username</label>
+        <input type="text" id="newUsername" class="form-control form-control-sm" placeholder="username">
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">Password</label>
+        <input type="password" id="newPassword" class="form-control form-control-sm" placeholder="password">
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">Email</label>
+        <input type="email" id="newEmail" class="form-control form-control-sm" placeholder="email@example.com">
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">Role</label>
+        <select id="newRole" class="form-select form-select-sm"><option value="">-- เลือก Role --</option></select>
+      </div>
+      <div class="mb-3">
+        <label class="small fw-bold text-secondary">Department</label>
+        <input type="text" id="newDept" class="form-control form-control-sm" placeholder="เช่น Installation">
+      </div>
+      <button class="btn btn-primary w-100 fw-bold" onclick="createUser()">
+        <i class="bi bi-person-check-fill"></i> สร้าง User
+      </button>
+      <div id="userMsg" class="mt-2 small text-center"></div>
+    </div>
+  </div>
+
+  <!-- รายชื่อ User -->
+  <div class="col-lg-8">
+    <div class="card p-4 shadow-sm border-0" style="border-radius: 15px;">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="fw-bold text-primary mb-0"><i class="bi bi-people-fill"></i> รายชื่อ User ทั้งหมด</h6>
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadUserList()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm small align-middle">
+          <thead class="table-light">
+            <tr><th>ชื่อ-นามสกุล</th><th>Username</th><th>Email</th><th>Role</th><th>Department</th><th></th></tr>
+          </thead>
+          <tbody id="userTableBody">
+            <tr><td colspan="6" class="text-center text-muted">กำลังโหลด...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal แก้ไข User -->
+  <div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-info text-white">
+          <h6 class="modal-title fw-bold"><i class="bi bi-person-gear"></i> แก้ไข User: <span id="editUser_label"></span></h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="editUser_username">
+          <div class="mb-2">
+            <label class="small fw-bold text-secondary">ชื่อ-นามสกุล</label>
+            <input type="text" id="editUser_fullname" class="form-control form-control-sm">
+          </div>
+          <div class="mb-2">
+            <label class="small fw-bold text-secondary">Password ใหม่ <span class="text-muted">(เว้นว่างถ้าไม่เปลี่ยน)</span></label>
+            <input type="password" id="editUser_password" class="form-control form-control-sm" placeholder="ใส่ password ใหม่หรือเว้นว่าง">
+          </div>
+          <div class="mb-2">
+            <label class="small fw-bold text-secondary">Email</label>
+            <input type="email" id="editUser_email" class="form-control form-control-sm">
+          </div>
+          <div class="mb-2">
+            <label class="small fw-bold text-secondary">Role</label>
+            <select id="editUser_role" class="form-select form-select-sm"></select>
+          </div>
+          <div class="mb-2">
+            <label class="small fw-bold text-secondary">Department</label>
+            <input type="text" id="editUser_dept" class="form-control form-control-sm">
+          </div>
+          <div id="editUserMsg" class="mt-2 small"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-danger btn-sm me-auto" onclick="confirmDeleteUser()"><i class="bi bi-trash3"></i> ลบ User</button>
+          <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+          <button class="btn btn-info btn-sm fw-bold text-white" onclick="confirmUpdateUser()"><i class="bi bi-save-fill"></i> บันทึก</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

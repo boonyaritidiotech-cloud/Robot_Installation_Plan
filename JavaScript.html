@@ -1,0 +1,1916 @@
+<script>
+let master = {};
+let addedRobots = [], reqRobots = [], resubRobots = [], editRobots = [], apRobots = [];
+let currentUser = null;
+let allRequestsCache = [];
+let approveAvailTimer = null;
+
+window.onload = function() {
+  // ✅ ซ่อนทุกอย่างก่อน ไม่ให้กระพริบ
+  document.getElementById('loginDiv').style.display = 'none';
+  document.getElementById('mainView').style.display = 'none';
+
+  var saved     = sessionStorage.getItem('robotUser');
+  var loginTime = parseInt(sessionStorage.getItem('robotLoginTime') || '0');
+  var elapsed   = Date.now() - loginTime;
+  var TIMEOUT   = 10 * 60 * 1000;
+
+  if (saved && elapsed < TIMEOUT) {
+    try {
+      var user = JSON.parse(saved);
+      currentUser = user;
+      showMain(user); // ✅ ไปหน้า main เลย ไม่ผ่าน login
+    } catch(e) {
+      showLogin();
+    }
+  } else {
+    sessionStorage.removeItem('robotUser');
+    sessionStorage.removeItem('robotLoginTime');
+    showLogin(); // ✅ ไม่มี session → ไปหน้า login
+  }
+
+  document.addEventListener('click',     updateSessionTime, { passive: true });
+  document.addEventListener('keydown',   updateSessionTime, { passive: true });
+  document.addEventListener('mousemove', updateSessionTime, { passive: true });
+};
+
+function updateSessionTime() {
+  if (currentUser) {
+    sessionStorage.setItem('robotLoginTime', Date.now().toString());
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('loginDiv') &&
+      document.getElementById('loginDiv').style.display !== 'none') login();
+});
+
+// แทนที่ PAGE_CONFIG เดิม
+const PAGE_CONFIG = {
+  dashboard:{ label:'Dashboard', icon:'bi-bar-chart-fill' },
+  add:      { label:'Add Plan',  icon:'bi-plus-circle' },
+  calendar: { label:'Calendar',  icon:'bi-calendar3' },
+  todo:     { label:'To-Do',     icon:'bi-list-check' },
+  request:  { label:'Request',   icon:'bi-send-plus' },
+  approve:  { label:'Approve',   icon:'bi-clipboard2-check' },
+  users:    { label:'Users',     icon:'bi-people-fill' }
+};
+
+// ✅ validate date/time — ป้องกันงานข้ามคืนที่ผิดพลาด
+function validateDateTime(startDate, endDate, sTime, eTime) {
+  if (!startDate || !endDate || !sTime || !eTime)
+    return { ok:false, msg:"❌ กรุณากรอกวันที่และเวลาให้ครบ" };
+  var sd = new Date(startDate + "T" + sTime + ":00");
+  var ed = new Date(endDate   + "T" + eTime + ":00");
+  if (isNaN(sd.getTime()) || isNaN(ed.getTime()))
+    return { ok:false, msg:"❌ วันที่หรือเวลาไม่ถูกต้อง" };
+  if (startDate === endDate && ed <= sd) {
+    var nextDay = new Date(endDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    var dd = nextDay.getDate().toString().padStart(2,'0');
+    var mm = (nextDay.getMonth()+1).toString().padStart(2,'0');
+    var yy = nextDay.getFullYear()+543;
+    return {
+      ok: true,
+      warn: "⚠️ เวลาสิ้นสุด ("+eTime+") น้อยกว่าเวลาเริ่ม ("+sTime+")\n"+
+            "ระบบจะนับเป็นงานข้ามคืน วันสิ้นสุดจะเป็น "+dd+"/"+mm+"/"+yy+"\n\nยืนยันบันทึกหรือไม่?"
+    };
+  }
+  if (ed < sd)
+    return { ok:false, msg:"❌ วันที่/เวลาสิ้นสุดต้องไม่น้อยกว่าวันที่/เวลาเริ่ม" };
+  return { ok:true };
+}
+
+// ✅ render staff panel ใช้ร่วมกันทุก form
+function renderAvailStaffPanel(panelId, checkboxClass, deptMap) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const depts = Object.keys(deptMap);
+  if (depts.length === 0) {
+    panel.innerHTML = '<div class="text-muted small">ไม่มีข้อมูล Staff</div>'; return;
+  }
+  panel.innerHTML = depts.map(dept => `
+    <div class="mb-3">
+      <div class="fw-bold small text-primary border-bottom pb-1 mb-2">
+        <i class="bi bi-people-fill"></i> ${dept}
+      </div>
+      ${deptMap[dept].map(s => `
+        <div class="form-check d-flex align-items-center gap-2 mb-1">
+          <input class="form-check-input ${checkboxClass}" type="checkbox"
+            value="${s.name}" id="${checkboxClass}_${s.name.replace(/\s/g,'_')}"
+            ${!s.available ? 'disabled' : ''}>
+          <label class="form-check-label small ${!s.available ? 'text-muted text-decoration-line-through' : 'text-dark'}"
+            for="${checkboxClass}_${s.name.replace(/\s/g,'_')}">
+            ${s.name}
+            <span class="badge ${s.available ? 'bg-success' : 'bg-danger'} ms-1" style="font-size:9px;">
+              ${s.available ? 'ว่าง' : 'ติดงาน'}
+            </span>
+            ${!s.available && s.busyJobs ? s.busyJobs.map(j =>
+              `<span class="badge bg-warning text-dark ms-1" style="font-size:9px;">
+                📅 ${j.date} — ${j.cust}
+              </span>`).join('') : ''}
+          </label>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+// ✅ render staff panel ใช้ร่วมกันทุก form
+function renderAvailStaffPanel(panelId, checkboxClass, deptMap) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const depts = Object.keys(deptMap);
+  if (depts.length === 0) {
+    panel.innerHTML = '<div class="text-muted small">ไม่มีข้อมูล Staff</div>'; return;
+  }
+  panel.innerHTML = depts.map(dept => `
+    <div class="mb-3">
+      <div class="fw-bold small text-primary border-bottom pb-1 mb-2">
+        <i class="bi bi-people-fill"></i> ${dept}
+      </div>
+      ${deptMap[dept].map(s => `
+        <div class="form-check d-flex align-items-center gap-2 mb-1">
+          <input class="form-check-input ${checkboxClass}" type="checkbox"
+            value="${s.name}" id="${checkboxClass}_${s.name.replace(/\s/g,'_')}"
+            ${!s.available ? 'disabled' : ''}>
+          <label class="form-check-label small ${!s.available ? 'text-muted text-decoration-line-through' : 'text-dark'}"
+            for="${checkboxClass}_${s.name.replace(/\s/g,'_')}">
+            ${s.name}
+            <span class="badge ${s.available ? 'bg-success' : 'bg-danger'} ms-1" style="font-size:9px;">
+              ${s.available ? 'ว่าง' : 'ติดงาน'}
+            </span>
+            ${!s.available && s.busyJobs ? s.busyJobs.map(j =>
+              `<span class="badge bg-warning text-dark ms-1" style="font-size:9px;">
+                📅 ${j.date} — ${j.cust}
+              </span>`).join('') : ''}
+          </label>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+// ============================================================
+// NAV & PAGE
+// ============================================================
+function buildNavMenu(permissions) {
+  const nav = document.getElementById('navMenu');
+  if (!nav) return;
+  nav.innerHTML = Object.keys(PAGE_CONFIG).filter(p => permissions[p])
+    .map(p => `<a class="nav-link" id="nav-${p}" onclick="switchPage('${p}')">
+      <i class="bi ${PAGE_CONFIG[p].icon}"></i> ${PAGE_CONFIG[p].label}</a>`).join('');
+}
+
+function switchPage(pId) {
+  if (!currentUser || !currentUser.permissions[pId]) { alert("คุณไม่มีสิทธิ์เข้าถึงหน้านี้"); return; }
+  _lastPage = pId;         // ✅ จำหน้าปัจจุบัน
+  resetSessionTimer();     // ✅ reset timer
+  document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
+  const target = document.getElementById('page-' + pId);
+  if (target) target.style.display = 'block';
+  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active','fw-bold'));
+  const nav = document.getElementById('nav-' + pId);
+  if (nav) nav.classList.add('active','fw-bold');
+  if (pId === 'todo')    loadUserTasks();
+  if (pId === 'add')     loadJobsByFilter();
+  if (pId === 'users')   { loadUserList(); loadRoleList(); }
+  if (pId === 'request') { loadMyRequests(); initReqFormSafe(); }
+  if (pId === 'approve') loadAllRequests();
+  // เพิ่มบรรทัดนี้ใน switchPage หลัง if (pId === 'approve')
+  if (pId === 'dashboard') {
+  // รอให้ master โหลดเสร็จก่อน
+  if (!master.customers || master.customers.length === 0) {
+    setTimeout(function(){ switchPage('dashboard'); }, 400);
+    return;
+    }
+    initDashboardFilters();
+    loadDashboard();
+  }
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+function login() {
+  const u = document.getElementById('u').value.trim();
+  const p = document.getElementById('p').value.trim();
+  if (!u || !p) return;
+  const btn = document.querySelector('#loginDiv .btn');
+  if (btn) { btn.disabled = true; btn.innerText = "กำลังเข้าสู่ระบบ..."; }
+  google.script.run.withSuccessHandler(function(res) {
+    if (btn) { btn.disabled = false; btn.innerText = "เข้าสู่ระบบ"; }
+    if (res.success) { currentUser = res; showMain(res); }
+    else document.getElementById('loginMsg').innerText = res.msg;
+  }).checkLogin(u, p);
+}
+
+function showLogin() {
+  document.getElementById('loginDiv').style.display = 'block';
+  document.getElementById('mainView').style.display = 'none';
+  document.getElementById('loginMsg').innerText = "";
+}
+
+function showMain(user) {
+  // ✅ เก็บ session ไว้ใน sessionStorage
+  sessionStorage.setItem('robotUser', JSON.stringify(user));
+  sessionStorage.setItem('robotLoginTime', Date.now().toString());
+  document.getElementById('loginDiv').style.display = 'none';
+  document.getElementById('mainView').style.display = 'block';
+  document.getElementById('userBadge').innerText = "👤 " + user.name;
+  document.getElementById('roleBadge').innerText = user.role;
+  buildNavMenu(user.permissions);
+  initData();
+  setTimeout(function() {
+    const first = Object.keys(PAGE_CONFIG).find(p => user.permissions[p]);
+    if (first) switchPage(first);
+  }, 150);
+  // ✅ เริ่ม session timer
+  resetSessionTimer();
+  ['click','keydown','mousemove','touchstart'].forEach(function(evt) {
+    document.addEventListener(evt, resetSessionTimer, { passive: true });
+  });
+}
+
+function logout() {
+  if (!confirm("ยืนยันการออกจากระบบ?")) return;
+  clearTimeout(_sessionTimer);
+  sessionStorage.removeItem('robotUser');      // ✅
+  sessionStorage.removeItem('robotLoginTime'); // ✅
+  currentUser = null; master = {};
+  addedRobots = []; reqRobots = []; resubRobots = []; editRobots = []; apRobots = [];
+  allRequestsCache = [];
+  ['userBadge','roleBadge'].forEach(id => document.getElementById(id).innerText = "");
+  document.getElementById('navMenu').innerHTML = "";
+  ['u','p'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ""; });
+  showLogin();
+}
+
+// ============================================================
+// INIT DATA
+// ============================================================
+function initData() {
+  google.script.run.withSuccessHandler(function(data) {
+    master = data;
+    setDropdown('custSelect', data.customers.map(x => x.company), '-- เลือกบริษัทลูกค้า --');
+    setDropdown('deptSelect', Object.keys(data.staff), '-- แผนก --');
+    setDropdown('brand', [...new Set(data.robots.map(x => x.brand))], '-- ยี่ห้อ --');
+    // ✅ โหลด jobTypes
+    fillJobTypeDropdowns();
+    const fs = document.getElementById('filterStaffSelect');
+    if (fs) {
+      const names = [].concat(...Object.values(data.staff).map(arr => arr.map(s => s.name)));
+      fs.innerHTML = '<option value="">-- ดูทุกคน --</option>' +
+        names.map(n => `<option value="${n}">${n}</option>`).join('');
+    }
+  }).getInitialData();
+}
+
+function fillJobTypeDropdowns() {
+  google.script.run.withSuccessHandler(function(types) {
+    master.jobTypes = types;
+    const opts = '<option value="">-- เลือกประเภทงาน --</option>' +
+      types.map(t => `<option value="${t}">${t}</option>`).join('');
+    // ✅ ใส่ทุก dropdown ที่เกี่ยวข้อง
+    ['jobType','req_jobType','edit_jobType','ap_jobType','resub_jobType'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = opts;
+    });
+  }).getJobTypes();
+}
+
+function setDropdown(id, items, placeholder) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<option value="">${placeholder}</option>` +
+    items.map(x => `<option value="${x}">${x}</option>`).join('');
+}
+
+function initReqFormSafe() {
+  if (!master.customers || master.customers.length === 0) { setTimeout(initReqFormSafe, 300); return; }
+  initReqForm();
+}
+
+// ============================================================
+// ADD PLAN
+// ============================================================
+function fillBranch() {
+  const found = master.customers.find(c => c.company === document.getElementById('custSelect').value);
+  const bs = document.getElementById('branchSelect');
+  if (!bs) return;
+  bs.innerHTML = (found && found.branches.length > 0)
+    ? '<option value="">-- เลือกสาขา --</option>' + found.branches.map(b => `<option value="${b}">${b}</option>`).join('')
+    : '<option value="">-- ไม่มีสาขา --</option>';
+}
+
+function filterRobots() {
+  const b = document.getElementById('brand').value;
+  document.getElementById('model').innerHTML = '<option value="">-- รุ่น --</option>' +
+    master.robots.filter(r => r.brand === b).map(r => `<option value="${r.model}">${r.model}</option>`).join('');
+}
+
+// ✅ เปลี่ยนจาก dropdown dept → ใช้ available staff panel แทน
+// ✅ เปลี่ยนจาก dropdown dept → ใช้ available staff panel แทน
+function showStaffByDept() {
+  loadAddPlanStaff();
+}
+
+let addPlanStaffTimer = null;
+function triggerAddPlanStaff() {
+  clearTimeout(addPlanStaffTimer);
+  addPlanStaffTimer = setTimeout(loadAddPlanStaff, 600);
+}
+
+function loadAddPlanStaff() {
+  const start = document.getElementById('start').value;
+  const end   = document.getElementById('end').value;
+  const sTime = document.getElementById('sTime').value;
+  const eTime = document.getElementById('eTime').value;
+  if (!start || !end) {
+    const sl = document.getElementById('staffList');
+    if (sl) sl.innerHTML = '<span class="text-muted small">กรอกวันที่ก่อน</span>';
+    return;
+  }
+  const sl = document.getElementById('staffList');
+  if (sl) sl.innerHTML = '<div class="text-muted small"><i class="bi bi-hourglass"></i> กำลังเช็ค Staff ว่าง...</div>';
+  google.script.run.withSuccessHandler(function(deptMap) {
+    renderAvailStaffPanel('staffList', 's-chk', deptMap);
+  }).getAvailableStaffByDept(start, end, sTime || '00:00', eTime || '23:59');
+}
+
+function addRobotToList() {
+  const b = document.getElementById('brand').value;
+  const m = document.getElementById('model').value;
+  const q = document.getElementById('robotQty').value;
+  if (!b || !m || q <= 0) return alert("ระบุข้อมูลหุ่นยนต์ให้ครบ");
+  addedRobots.push({ brand:b, model:m, qty:q });
+  renderRobotList();
+}
+
+function renderRobotList() {
+  const d = document.getElementById('selectedRobotList');
+  if (!d) return;
+  d.innerHTML = addedRobots.length === 0
+    ? "<span class='text-muted'>ยังไม่มีรายการ</span>"
+    : addedRobots.map((r,i) => `
+        <div class="d-flex justify-content-between p-1 border-bottom small bg-white mb-1">
+          <span>${i+1}. ${r.brand} ${r.model} (<b>${r.qty}</b> ตัว)</span>
+          <i class="bi bi-x-circle text-danger" style="cursor:pointer;"
+             onclick="addedRobots.splice(${i},1);renderRobotList();"></i>
+        </div>`).join('');
+}
+
+function resetForm() {
+  ['custSelect','deptSelect','brand'].forEach(id => { const e=document.getElementById(id); if(e) e.value=""; });
+  const bs=document.getElementById('branchSelect');
+  if(bs) bs.innerHTML='<option value="">-- เลือกสาขา --</option>';
+  const md=document.getElementById('model');
+  if(md) md.innerHTML='<option value="">-- รุ่น --</option>';
+  ['start','end','mapSearch','remark'].forEach(id => { const e=document.getElementById(id); if(e) e.value=""; });
+  const st=document.getElementById('sTime'); if(st) st.value="09:00";
+  const et=document.getElementById('eTime'); if(et) et.value="17:00";
+  const jt=document.getElementById('jobType'); if(jt) jt.value="";
+  addedRobots=[]; renderRobotList();
+  const sl=document.getElementById('staffList'); if(sl) sl.innerHTML="";
+}
+
+function save() {
+  if (addedRobots.length === 0) return alert("กรุณาเพิ่มรายการหุ่นยนต์ก่อนบันทึก");
+  const jobType = document.getElementById('jobType') ? document.getElementById('jobType').value : "";
+  if (!jobType) return alert("กรุณาเลือกประเภทงาน");
+
+  const startDate = document.getElementById('start').value;
+  const endDate   = document.getElementById('end').value;
+  const sTime     = document.getElementById('sTime').value;
+  const eTime     = document.getElementById('eTime').value;
+
+  // ✅ validate datetime
+  const chk = validateDateTime(startDate, endDate, sTime, eTime);
+  if (!chk.ok) return alert(chk.msg);
+  if (chk.warn) { if (!confirm(chk.warn)) return; }
+
+  const btn = document.getElementById('saveBtn');
+  btn.disabled=true; btn.innerHTML='<i class="bi bi-hourglass"></i> กำลังบันทึก...';
+  const data = {
+    start:    startDate,
+    end:      endDate,
+    sTime:    sTime,
+    eTime:    eTime,
+    cust:     document.getElementById('custSelect').value,
+    branch:   document.getElementById('branchSelect').value,
+    location: document.getElementById('mapSearch').value,
+    jobType:  jobType,
+    robots:   addedRobots.map(r=>`${r.brand} ${r.model}(${r.qty})`).join(", "),
+    remark:   document.getElementById('remark').value,
+    staff:    Array.from(document.querySelectorAll('.s-chk:checked')).map(c=>c.value)
+  };
+  google.script.run.withSuccessHandler(function(res) {
+    alert(res.msg);
+    btn.disabled=false; btn.innerHTML='<i class="bi bi-save-fill"></i> บันทึกแผนงาน';
+    if (res.success) {
+      resetForm(); loadJobsByFilter();
+      const ifr=document.getElementById('calendarIframe'); if(ifr) ifr.src=ifr.src;
+    }
+  }).saveJob(data);
+}
+
+// ============================================================
+// JOB LIST
+// ============================================================
+function loadJobsByFilter() {
+  google.script.run.withSuccessHandler(function(jobs) {
+    const countEl = document.getElementById('jobCount');
+    if (countEl) countEl.innerText = jobs.length + ' รายการ';
+    window._allJobs = jobs;
+    renderJobTable(jobs);
+  }).getFilteredJobList();
+}
+
+function renderJobTable(jobs) {
+  const body = document.getElementById('filterTableBody');
+  if (!body) return;
+  if (!jobs || jobs.length === 0) {
+    body.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-3">ไม่มีแผนงานที่ยังไม่ผ่านวันนี้</td></tr>';
+    return;
+  }
+  const sc = { "งานใหม่":"warning","กำลังดำเนินการ":"info","เสร็จสิ้น":"success" };
+  body.innerHTML = jobs.map(j => `
+    <tr class="align-middle">
+      <td>
+        <div class="fw-bold small">${j.customer}${j.branch?' - '+j.branch:''}</div>
+        <div class="small text-muted">
+          <i class="bi bi-calendar3"></i>
+          ${j.date}${j.endDate&&j.endDate!==j.date?' → '+j.endDate:''}
+          ${j.sTime?' | '+j.sTime+(j.eTime?' - '+j.eTime:''):''}
+        </div>
+        <div class="small text-muted"><i class="bi bi-robot"></i> ${j.robots||'-'}</div>
+        <span class="badge bg-${sc[j.status]||'secondary'}" style="font-size:9px;">${j.status}</span>
+        ${j.jobType?`<span class="badge bg-light text-dark border ms-1" style="font-size:9px;">${j.jobType}</span>`:''}
+      </td>
+      <td class="text-end text-nowrap">
+        <button class="btn btn-outline-warning btn-sm me-1" onclick="openEditJob('${j.id}')">
+          <i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-sm" onclick="deleteJob('${j.id}')">
+          <i class="bi bi-trash3"></i></button>
+      </td>
+    </tr>`).join('');
+}
+
+function searchJobs() {
+  const q = document.getElementById('jobSearch').value.toLowerCase();
+  if (!window._allJobs) return;
+  const filtered = q
+    ? window._allJobs.filter(j =>
+        (j.customer||'').toLowerCase().includes(q) ||
+        (j.branch||'').toLowerCase().includes(q) ||
+        (j.staff||'').toLowerCase().includes(q) ||
+        (j.robots||'').toLowerCase().includes(q) ||
+        (j.jobType||'').toLowerCase().includes(q))
+    : window._allJobs;
+  renderJobTable(filtered);
+}
+
+// ============================================================
+// EDIT JOB
+// ============================================================
+function openEditJob(jobId) {
+  console.log("openEditJob called with:", jobId);
+
+  const editJobId = document.getElementById('editJobId');
+  if (!editJobId) { console.error("❌ editJobId not found"); return; }
+  editJobId.value = jobId;
+
+  const editJobId_label = document.getElementById('editJobId_label');
+  if (editJobId_label) editJobId_label.innerText = jobId;
+
+  const editJobMsg = document.getElementById('editJobMsg');
+  if (editJobMsg) editJobMsg.innerHTML =
+    '<span class="text-muted small"><i class="bi bi-hourglass"></i> กำลังโหลด...</span>';
+
+  // เช็คว่า element ไหนหาย
+  ['edit_start','edit_end','edit_sTime','edit_eTime',
+   'edit_cust','edit_branch','edit_location','edit_remark',
+   'edit_jobType','edit_deptSelect','edit_staffList',
+   'edit_brand','edit_model','editRobotList'].forEach(function(id) {
+    if (!document.getElementById(id)) console.error("❌ Missing element: " + id);
+  });
+
+  const eb = document.getElementById('edit_brand');
+  if (eb && master.robots) {
+    eb.innerHTML = '<option value="">-- ยี่ห้อ --</option>' +
+      [...new Set(master.robots.map(x => x.brand))].map(b => `<option value="${b}">${b}</option>`).join('');
+  }
+  document.getElementById('edit_model').innerHTML = '<option value="">-- รุ่น --</option>';
+  const ed = document.getElementById('edit_deptSelect');
+  if (ed && master.staff) {
+    ed.innerHTML = '<option value="">-- แผนก --</option>' +
+      Object.keys(master.staff).map(d => `<option value="${d}">${d}</option>`).join('');
+  }
+  const esl = document.getElementById('edit_staffList');
+  if (esl) esl.innerHTML = '<span class="text-muted small">เลือกแผนกก่อน</span>';
+  editRobots = [];
+  renderEditRobotList();
+  new bootstrap.Modal(document.getElementById('editJobModal')).show();
+  google.script.run.withSuccessHandler(function(job) {
+    if (!job) {
+      if (editJobMsg) editJobMsg.innerHTML = '<span class="text-danger">❌ ไม่พบข้อมูล</span>'; return;
+    }
+    document.getElementById('edit_start').value    = job.start    || "";
+    document.getElementById('edit_end').value      = job.end      || "";
+    document.getElementById('edit_sTime').value    = job.sTime    || "09:00";
+    document.getElementById('edit_eTime').value    = job.eTime    || "17:00";
+    document.getElementById('edit_cust').value     = job.cust     || "";
+    document.getElementById('edit_branch').value   = job.branch   || "";
+    document.getElementById('edit_location').value = job.location || "";
+    document.getElementById('edit_remark').value   = job.remark   || "";
+    const ejt = document.getElementById('edit_jobType');
+    if (ejt) ejt.value = job.jobType || "";
+    editRobots = [];
+    if (job.robots) {
+      job.robots.split(",").forEach(function(part) {
+        part = part.trim();
+        const match = part.match(/^(.+?)\s+(.+?)\((\d+)\)$/);
+        if (match) editRobots.push({ brand:match[1].trim(), model:match[2].trim(), qty:match[3] });
+        else if (part) editRobots.push({ brand:part, model:'', qty:1 });
+      });
+    }
+    renderEditRobotList();
+    if (job.staff) {
+      const currentStaff = job.staff.split(",").map(s => s.trim());
+      let foundDept = "";
+      Object.keys(master.staff).forEach(function(dept) {
+        master.staff[dept].forEach(function(s) {
+          if (currentStaff.includes(s.name)) foundDept = dept;
+        });
+      });
+      if (foundDept) {
+        document.getElementById('edit_deptSelect').value = foundDept;
+        showEditStaffByDept();
+        setTimeout(function() {
+          currentStaff.forEach(function(name) {
+            const cb = document.getElementById('echk_' + name.replace(/\s/g,'_'));
+            if (cb) cb.checked = true;
+          });
+        }, 150);
+      }
+    }
+    if (editJobMsg) editJobMsg.innerHTML = "";
+  }).getJobDetail(jobId);
+}
+
+function showEditStaffByDept() {
+  const dept = document.getElementById('edit_deptSelect').value;
+  const sl   = document.getElementById('edit_staffList');
+  if (!sl) return;
+  sl.innerHTML = (dept && master.staff[dept])
+    ? master.staff[dept].map(s => `
+        <div class="form-check">
+          <input class="form-check-input edit-s-chk" type="checkbox"
+            value="${s.name}" id="echk_${s.name.replace(/\s/g,'_')}">
+          <label class="form-check-label small" for="echk_${s.name.replace(/\s/g,'_')}">${s.name}</label>
+        </div>`).join('')
+    : '<span class="text-muted small">เลือกแผนกก่อน</span>';
+}
+
+function filterEditRobots() {
+  const b = document.getElementById('edit_brand').value;
+  document.getElementById('edit_model').innerHTML = '<option value="">-- รุ่น --</option>' +
+    master.robots.filter(r => r.brand === b).map(r => `<option value="${r.model}">${r.model}</option>`).join('');
+}
+
+function addEditRobotToList() {
+  const b = document.getElementById('edit_brand').value;
+  const m = document.getElementById('edit_model').value;
+  const q = document.getElementById('edit_robotQty').value;
+  if (!b || !m || q <= 0) return alert("ระบุข้อมูลหุ่นยนต์ให้ครบ");
+  editRobots.push({ brand:b, model:m, qty:q });
+  renderEditRobotList();
+}
+
+function renderEditRobotList() {
+  const d = document.getElementById('editRobotList');
+  if (!d) return;
+  d.innerHTML = editRobots.length === 0
+    ? "<span class='text-muted'>ยังไม่มีรายการ</span>"
+    : editRobots.map((r,i) => `
+        <div class="d-flex justify-content-between p-1 border-bottom small bg-white mb-1">
+          <span>${i+1}. ${r.brand} ${r.model} (<b>${r.qty}</b> ตัว)</span>
+          <i class="bi bi-x-circle text-danger" style="cursor:pointer;"
+             onclick="editRobots.splice(${i},1);renderEditRobotList();"></i>
+        </div>`).join('');
+}
+
+function confirmEditJob() {
+  const jobId = document.getElementById('editJobId').value;
+  if (editRobots.length === 0) {
+    document.getElementById('editJobMsg').innerHTML = '<span class="text-danger">❌ กรุณาเพิ่มรายการหุ่นยนต์</span>'; return;
+  }
+  const staffArr = Array.from(document.querySelectorAll('.edit-s-chk:checked')).map(c => c.value);
+  if (staffArr.length === 0) {
+    document.getElementById('editJobMsg').innerHTML = '<span class="text-danger">❌ กรุณาเลือก Staff อย่างน้อย 1 คน</span>'; return;
+  }
+  // ✅ validate datetime
+  const chk = validateDateTime(
+    document.getElementById('edit_start').value,
+    document.getElementById('edit_end').value,
+    document.getElementById('edit_sTime').value,
+    document.getElementById('edit_eTime').value
+  );
+  if (!chk.ok) { document.getElementById('editJobMsg').innerHTML='<span class="text-danger">'+chk.msg+'</span>'; return; }
+  if (chk.warn) { if (!confirm(chk.warn)) return; }
+
+  const obj = {
+    start:     document.getElementById('edit_start').value,
+    end:       document.getElementById('edit_end').value,
+    sTime:     document.getElementById('edit_sTime').value,
+    eTime:     document.getElementById('edit_eTime').value,
+    cust:      document.getElementById('edit_cust').value,
+    branch:    document.getElementById('edit_branch').value,
+    location:  document.getElementById('edit_location').value,
+    jobType:   document.getElementById('edit_jobType') ? document.getElementById('edit_jobType').value : "",
+    robots:    editRobots.map(r => `${r.brand} ${r.model}(${r.qty})`).join(", "),
+    staff:     staffArr,
+    remark:    document.getElementById('edit_remark').value,
+    updatedBy: currentUser.name
+  };
+  document.getElementById('editJobMsg').innerHTML = '<span class="text-muted small">กำลังบันทึก...</span>';
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('editJobMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ ' + res.msg + '</span>'
+      : '<span class="text-danger">❌ ' + res.msg + '</span>';
+    if (res.success) setTimeout(function() {
+      bootstrap.Modal.getInstance(document.getElementById('editJobModal')).hide();
+      loadJobsByFilter();
+      const ifr=document.getElementById('calendarIframe'); if(ifr) ifr.src=ifr.src;
+    }, 800);
+  }).updateJob(jobId, obj);
+}
+
+function deleteJob(jobId) {
+  if (!confirm("ยืนยันการลบงานรหัส: "+jobId+"?")) return;
+  google.script.run.withSuccessHandler(function(res) {
+    alert(res.msg);
+    if (res.success) { loadJobsByFilter(); const ifr=document.getElementById('calendarIframe'); if(ifr) ifr.src=ifr.src; }
+  }).removeJobFromServer(jobId);
+}
+
+// ============================================================
+// TO-DO
+// ============================================================
+function loadUserTasks() {
+  const isAdmin   = currentUser && currentUser.permissions['add'];
+  const adminFilt = document.getElementById('todoAdminFilter');
+  const staffHdr  = document.getElementById('todoStaffHeader');
+  const colHdr    = document.getElementById('staffColHeader');
+  if (isAdmin) {
+    if (adminFilt) adminFilt.style.display = 'block';
+    if (staffHdr)  staffHdr.style.display  = 'none';
+    if (colHdr)    colHdr.innerText = 'Staff';
+    if (master.staff) {
+      const fs = document.getElementById('filterStaffSelect');
+      if (fs) {
+        const names = [].concat(...Object.values(master.staff).map(arr => arr.map(s => s.name)));
+        fs.innerHTML = '<option value="">-- ดูทุกคน --</option>' +
+          names.map(n => `<option value="${n}">${n}</option>`).join('');
+      }
+    }
+    loadTodoByFilter();
+  } else {
+    if (adminFilt) adminFilt.style.display = 'none';
+    if (staffHdr)  staffHdr.style.display  = 'block';
+    if (colHdr)    colHdr.innerText = 'เวลา';
+    google.script.run.withSuccessHandler(renderTodoTable).getUserJobs(currentUser.name);
+  }
+}
+
+function loadTodoByFilter() {
+  const staffVal  = document.getElementById('filterStaffSelect')  ? document.getElementById('filterStaffSelect').value  : "";
+  const statusVal = document.getElementById('filterStatusSelect') ? document.getElementById('filterStatusSelect').value : "";
+  const mineVal   = document.getElementById('filterMineSelect')   ? document.getElementById('filterMineSelect').value   : "";
+  const body = document.getElementById('userJobBody');
+  if (body) body.innerHTML = '<tr><td colspan="6" class="text-center text-muted"><i class="bi bi-hourglass"></i> กำลังโหลด...</td></tr>';
+  google.script.run.withSuccessHandler(function(jobs) {
+    let filtered = jobs || [];
+    if (mineVal === 'mine')
+      filtered = filtered.filter(j => j.staff && j.staff.split(",").map(s=>s.trim()).includes(currentUser.name));
+    else if (mineVal === 'others')
+      filtered = filtered.filter(j => !j.staff || !j.staff.split(",").map(s=>s.trim()).includes(currentUser.name));
+    if (staffVal)
+      filtered = filtered.filter(j => j.staff && j.staff.split(",").map(s=>s.trim()).includes(staffVal));
+    if (statusVal)
+      filtered = filtered.filter(j => j.status === statusVal);
+    const summary = document.getElementById('todoSummary');
+    if (summary) {
+      summary.innerHTML = `
+        <span class="badge bg-secondary">ทั้งหมด ${filtered.length}</span>
+        <span class="badge bg-warning text-dark">งานใหม่ ${filtered.filter(j=>j.status==='งานใหม่').length}</span>
+        <span class="badge bg-info">กำลังดำเนินการ ${filtered.filter(j=>j.status==='กำลังดำเนินการ').length}</span>
+        <span class="badge bg-success">เสร็จสิ้น ${filtered.filter(j=>j.status==='เสร็จสิ้น').length}</span>`;
+    }
+   // ✅ เรียงวันที่ใกล้ → ไกล
+    filtered.sort(function(a, b) {
+      var da = new Date(a.date || '9999-12-31');
+      var db = new Date(b.date || '9999-12-31');
+      return da - db;
+    });
+    renderTodoTable(filtered);
+  }).getAllJobs();
+}
+
+function renderTodoTable(jobs) {
+  const body = document.getElementById('userJobBody');
+  if (!body) return;
+  const isAdmin = currentUser && currentUser.permissions['add'];
+  const sc = { "งานใหม่":"warning","กำลังดำเนินการ":"info","เสร็จสิ้น":"success" };
+  if (!jobs || jobs.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">ไม่มีงาน</td></tr>'; return;
+  }
+
+  // ✅ เรียงวันที่ใกล้ → ไกล
+  jobs = jobs.slice().sort(function(a, b) {
+  function parseDate(str) {
+    if (!str) return new Date('9999-12-31');
+    var parts = str.split('/');
+    if (parts.length === 3) return new Date(parts[2] + '-' + parts[1] + '-' + parts[0]);
+    return new Date(str);
+  }
+  // ✅ เสร็จสิ้น → ไปอยู่ล่างสุดเสมอ
+  var aDone = a.status === 'เสร็จสิ้น' ? 1 : 0;
+  var bDone = b.status === 'เสร็จสิ้น' ? 1 : 0;
+  if (aDone !== bDone) return aDone - bDone;
+  // ถ้าสถานะเหมือนกัน → เรียงวันที่ใกล้ → ไกล
+  return parseDate(a.date) - parseDate(b.date);
+});
+
+  body.innerHTML = jobs.map(function(j) {
+    const isMyJob  = j.staff && j.staff.split(",").map(s=>s.trim()).includes(currentUser.name);
+    const rowClass = (isAdmin && isMyJob) ? 'table-primary' : '';
+    const staffHtml = isAdmin
+      ? (j.staff||'').split(",").map(s => s.trim()).filter(Boolean).map(s =>
+          `<span class="badge ${s===currentUser.name?'bg-primary':'bg-light text-dark border'} me-1">${s}</span>`
+        ).join('')
+      : (j.sTime||'') + (j.eTime ? ' - '+j.eTime : '');
+    return `
+      <tr class="${rowClass}">
+        <td>
+          <div class="fw-bold small">${j.cust}${j.branch?' - '+j.branch:''}
+            ${isAdmin&&isMyJob?'<span class="badge bg-primary ms-1" style="font-size:9px;">ของฉัน</span>':''}
+          </div>
+          <small class="text-muted">${j.date}${j.endDate&&j.endDate!==j.date?' → '+j.endDate:''}</small>
+        </td>
+        <td class="small">${j.jobType||'-'}</td>
+        <td class="small">${j.robots||'-'}</td>
+        <td class="small">${staffHtml}</td>
+        <td><span class="badge bg-${sc[j.status]||'secondary'}">${j.status}</span></td>
+        <td>
+          ${j.status !== 'เสร็จสิ้น' ? `
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">อัปเดต</button>
+              <ul class="dropdown-menu dropdown-menu-end small">
+                <li><a class="dropdown-item" style="cursor:pointer;"
+                  onclick="setJobStatus('${j.id}','กำลังดำเนินการ')">🔄 กำลังดำเนินการ</a></li>
+                <li><a class="dropdown-item" style="cursor:pointer;"
+                  onclick="setJobStatus('${j.id}','เสร็จสิ้น')">✅ เสร็จสิ้น</a></li>
+              </ul>
+            </div>` : '<i class="bi bi-check-circle-fill text-success fs-5"></i>'}
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+function setJobStatus(jobId, status) {
+  google.script.run.withSuccessHandler(function(res) {
+    if (res.success) loadUserTasks(); else alert("❌ " + res.msg);
+  }).updateJobStatus(jobId, currentUser.name, status);
+}
+
+// ============================================================
+// REQUEST
+// ============================================================
+function initReqForm() {
+  const custList  = master.customers.map(x => x.company);
+  const brandList = [...new Set(master.robots.map(x => x.brand))];
+  setDropdown('req_cust',    custList,  '-- เลือกบริษัทลูกค้า --');
+  setDropdown('req_brand',   brandList, '-- ยี่ห้อ --');
+  setDropdown('resub_cust',  custList,  '-- เลือกบริษัทลูกค้า --');
+  setDropdown('resub_brand', brandList, '-- ยี่ห้อ --');
+  reqRobots = []; renderReqRobotList();
+}
+
+function fillReqBranch() {
+  const found = master.customers.find(c => c.company === document.getElementById('req_cust').value);
+  const bs = document.getElementById('req_branch');
+  if (!bs) return;
+  bs.innerHTML = (found && found.branches.length > 0)
+    ? '<option value="">-- เลือกสาขา --</option>' + found.branches.map(b => `<option value="${b}">${b}</option>`).join('')
+    : '<option value="">-- ไม่มีสาขา --</option>';
+}
+
+function fillResubBranch() {
+  const found = master.customers.find(c => c.company === document.getElementById('resub_cust').value);
+  const bs = document.getElementById('resub_branch');
+  if (!bs) return;
+  bs.innerHTML = (found && found.branches.length > 0)
+    ? '<option value="">-- เลือกสาขา --</option>' + found.branches.map(b => `<option value="${b}">${b}</option>`).join('')
+    : '<option value="">-- ไม่มีสาขา --</option>';
+}
+
+function filterReqRobots() {
+  const b = document.getElementById('req_brand').value;
+  document.getElementById('req_model').innerHTML = '<option value="">-- รุ่น --</option>' +
+    master.robots.filter(r => r.brand === b).map(r => `<option value="${r.model}">${r.model}</option>`).join('');
+}
+
+function filterResubRobots() {
+  const b = document.getElementById('resub_brand').value;
+  document.getElementById('resub_model').innerHTML = '<option value="">-- รุ่น --</option>' +
+    master.robots.filter(r => r.brand === b).map(r => `<option value="${r.model}">${r.model}</option>`).join('');
+}
+
+function addReqRobotToList() {
+  const b=document.getElementById('req_brand').value;
+  const m=document.getElementById('req_model').value;
+  const q=document.getElementById('req_robotQty').value;
+  if (!b||!m||q<=0) return alert("ระบุข้อมูลหุ่นยนต์ให้ครบ");
+  reqRobots.push({brand:b,model:m,qty:q}); renderReqRobotList();
+}
+
+function renderReqRobotList() {
+  const d = document.getElementById('reqRobotList');
+  if (!d) return;
+  d.innerHTML = reqRobots.length === 0
+    ? "<span class='text-muted'>ยังไม่มีรายการ</span>"
+    : reqRobots.map((r,i) => `
+        <div class="d-flex justify-content-between p-1 border-bottom small bg-white mb-1">
+          <span>${i+1}. ${r.brand} ${r.model} (<b>${r.qty}</b> ตัว)</span>
+          <i class="bi bi-x-circle text-danger" style="cursor:pointer;"
+             onclick="reqRobots.splice(${i},1);renderReqRobotList();"></i>
+        </div>`).join('');
+}
+
+function addResubRobotToList() {
+  const b=document.getElementById('resub_brand').value;
+  const m=document.getElementById('resub_model').value;
+  const q=document.getElementById('resub_robotQty').value;
+  if (!b||!m||q<=0) return alert("ระบุข้อมูลหุ่นยนต์ให้ครบ");
+  resubRobots.push({brand:b,model:m,qty:q}); renderResubRobotList();
+}
+
+function renderResubRobotList() {
+  const d = document.getElementById('resubRobotList');
+  if (!d) return;
+  d.innerHTML = resubRobots.length === 0
+    ? "<span class='text-muted'>ยังไม่มีรายการ</span>"
+    : resubRobots.map((r,i) => `
+        <div class="d-flex justify-content-between p-1 border-bottom small bg-white mb-1">
+          <span>${i+1}. ${r.brand} ${r.model} (<b>${r.qty}</b> ตัว)</span>
+          <i class="bi bi-x-circle text-danger" style="cursor:pointer;"
+             onclick="resubRobots.splice(${i},1);renderResubRobotList();"></i>
+        </div>`).join('');
+}
+
+let reqStaffTimer = null;
+function triggerReqStaff() {
+  clearTimeout(reqStaffTimer);
+  reqStaffTimer = setTimeout(loadReqStaff, 600);
+}
+
+function loadReqStaff() {
+  const start = document.getElementById('req_start').value;
+  const end   = document.getElementById('req_end').value;
+  const sTime = document.getElementById('req_sTime').value;
+  const eTime = document.getElementById('req_eTime').value;
+  if (!start || !end) return;
+  const panel = document.getElementById('reqStaffPanel');
+  if (panel) panel.innerHTML = '<div class="text-muted small"><i class="bi bi-hourglass"></i> กำลังเช็ค Staff ว่าง...</div>';
+  google.script.run.withSuccessHandler(function(deptMap) {
+    renderAvailStaffPanel('reqStaffPanel', 'req-staff-info', deptMap);
+    // ✅ Request form ดูได้อย่างเดียว ไม่ได้เลือก Staff
+    document.querySelectorAll('.req-staff-info').forEach(cb => cb.disabled = true);
+  }).getAvailableStaffByDept(start, end, sTime || '00:00', eTime || '23:59');
+}
+
+function submitRequest() {
+  const jobType = document.getElementById('req_jobType') ? document.getElementById('req_jobType').value : "";
+  if (!jobType) { document.getElementById('reqMsg').innerHTML='<span class="text-danger">❌ กรุณาเลือกประเภทงาน</span>'; return; }
+  if (reqRobots.length===0) { document.getElementById('reqMsg').innerHTML='<span class="text-danger">❌ กรุณาเพิ่มรายการหุ่นยนต์</span>'; return; }
+
+  const startDate = document.getElementById('req_start').value;
+  const endDate   = document.getElementById('req_end').value;
+  const sTime     = document.getElementById('req_sTime').value;
+  const eTime     = document.getElementById('req_eTime').value;
+
+  // ✅ validate datetime
+  const chk = validateDateTime(startDate, endDate, sTime, eTime);
+  if (!chk.ok) { document.getElementById('reqMsg').innerHTML='<span class="text-danger">'+chk.msg+'</span>'; return; }
+  if (chk.warn) { if (!confirm(chk.warn)) return; }
+
+  const obj = {
+    jobType:   jobType,
+    start:     startDate,
+    end:       endDate,
+    sTime:     sTime,
+    eTime:     eTime,
+    cust:      document.getElementById('req_cust').value,
+    branch:    document.getElementById('req_branch').value,
+    location:  document.getElementById('req_location').value,
+    robots:    reqRobots.map(r=>`${r.brand} ${r.model}(${r.qty})`).join(", "),
+    remark:    document.getElementById('req_remark').value,
+    staff:     "",
+    requestBy: currentUser.name
+  };
+  if (!obj.start||!obj.end||!obj.cust) {
+    document.getElementById('reqMsg').innerHTML='<span class="text-danger">❌ กรุณากรอกข้อมูลให้ครบ</span>'; return;
+  }
+  const btn = document.getElementById('reqSubmitBtn');
+  btn.disabled=true; btn.innerHTML='<i class="bi bi-hourglass"></i> กำลังส่ง...';
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('reqMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    btn.disabled=false; btn.innerHTML='<i class="bi bi-send-fill"></i> ส่งคำขอ';
+    if (res.success) {
+      reqRobots=[]; renderReqRobotList();
+      ['req_start','req_end','req_location','req_remark'].forEach(id=>{const e=document.getElementById(id);if(e)e.value="";});
+      const jt=document.getElementById('req_jobType'); if(jt) jt.value="";
+      const rc=document.getElementById('req_cust'); if(rc) rc.value="";
+      const rb=document.getElementById('req_branch'); if(rb) rb.innerHTML='<option value="">-- เลือกสาขา --</option>';
+      loadMyRequests();
+    }
+  }).submitRequest(obj);
+}
+
+function loadMyRequests() {
+  if (!currentUser) return;
+  const body = document.getElementById('myRequestBody');
+  if (body) body.innerHTML='<tr><td colspan="7" class="text-center text-muted"><i class="bi bi-hourglass"></i> กำลังโหลด...</td></tr>';
+  google.script.run.withSuccessHandler(function(reqs) {
+    if (!body) return;
+    if (!reqs||reqs.length===0) {
+      body.innerHTML='<tr><td colspan="7" class="text-center text-muted">ยังไม่มีคำขอ</td></tr>'; return;
+    }
+    const badge = {"รอดำเนินการ":"warning","อนุมัติ":"success","ไม่อนุมัติ":"danger"};
+    body.innerHTML = reqs.map(r => `
+      <tr>
+        <td class="small">${r.jobType||'-'}</td>
+        <td>${r.cust}${r.branch?'<br><small class="text-muted">'+r.branch+'</small>':''}</td>
+        <td class="small">${r.start}</td>
+        <td><span class="badge bg-${badge[r.status]||'secondary'}">${r.status}</span></td>
+        <td class="small text-danger">${r.reason||""}</td>
+        <td class="small">
+          ${r.staff
+            ? r.staff.split(",").map(s=>`<span class="badge bg-primary me-1">${s.trim()}</span>`).join('')
+            : '<span class="text-muted">-</span>'}
+        </td>
+        <td>${r.status==='ไม่อนุมัติ'
+          ?`<button class="btn btn-warning btn-sm" onclick='openResubmit(${JSON.stringify(r)})'>
+              <i class="bi bi-pencil"></i></button>`
+          :""}</td>
+      </tr>`).join('');
+  }).getMyRequests(currentUser.name);
+}
+
+function openResubmit(req) {
+  document.getElementById('resubmit_reqId').value  = req.reqId;
+  document.getElementById('resub_start').value     = req.start    || "";
+  document.getElementById('resub_end').value       = req.end      || "";
+  document.getElementById('resub_sTime').value     = req.sTime    || "09:00";
+  document.getElementById('resub_eTime').value     = req.eTime    || "17:00";
+  document.getElementById('resub_location').value  = req.location || "";
+  document.getElementById('resub_remark').value    = req.remark   || "";
+  const jt=document.getElementById('resub_jobType'); if(jt) jt.value=req.jobType||"";
+  const cs=document.getElementById('resub_cust');
+  if (cs) {
+    cs.value=req.cust; fillResubBranch();
+    setTimeout(function(){ const b=document.getElementById('resub_branch'); if(b) b.value=req.branch||""; },200);
+  }
+  resubRobots=[]; renderResubRobotList();
+  document.getElementById('resubMsg').innerHTML="";
+  new bootstrap.Modal(document.getElementById('resubmitModal')).show();
+}
+
+function confirmResubmit() {
+  if (resubRobots.length===0) {
+    document.getElementById('resubMsg').innerHTML='<span class="text-danger">❌ กรุณาเพิ่มรายการหุ่นยนต์</span>'; return;
+  }
+  const chk = validateDateTime(
+    document.getElementById('resub_start').value,
+    document.getElementById('resub_end').value,
+    document.getElementById('resub_sTime').value,
+    document.getElementById('resub_eTime').value
+  );
+  if (!chk.ok) { document.getElementById('resubMsg').innerHTML='<span class="text-danger">'+chk.msg+'</span>'; return; }
+  if (chk.warn) { if (!confirm(chk.warn)) return; }
+
+  const obj = {
+    jobType:  document.getElementById('resub_jobType')?document.getElementById('resub_jobType').value:"",
+    start:    document.getElementById('resub_start').value,
+    end:      document.getElementById('resub_end').value,
+    sTime:    document.getElementById('resub_sTime').value,
+    eTime:    document.getElementById('resub_eTime').value,
+    cust:     document.getElementById('resub_cust').value,
+    branch:   document.getElementById('resub_branch').value,
+    location: document.getElementById('resub_location').value,
+    robots:   resubRobots.map(r=>`${r.brand} ${r.model}(${r.qty})`).join(", "),
+    staff:    "",
+    remark:   document.getElementById('resub_remark').value
+  };
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('resubMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    if (res.success) {
+      resubRobots=[];
+      setTimeout(function(){
+        bootstrap.Modal.getInstance(document.getElementById('resubmitModal')).hide();
+        loadMyRequests();
+      },1000);
+    }
+  }).resubmitRequest(document.getElementById('resubmit_reqId').value, obj);
+}
+
+// ============================================================
+// APPROVE
+// ============================================================
+let currentApproveFilter = '';
+
+function loadAllRequests() {
+  const list = document.getElementById('requestCardList');
+  if (list) list.innerHTML='<div class="text-center text-muted py-4"><i class="bi bi-hourglass"></i> กำลังโหลด...</div>';
+  google.script.run.withSuccessHandler(function(reqs) {
+    allRequestsCache = reqs||[];
+    renderRequestCards(allRequestsCache);
+  }).getAllRequests();
+}
+
+function filterApproveStatus(status) {
+  currentApproveFilter = status;
+  ['all','pending','approved','rejected'].forEach(k => {
+    const b=document.getElementById('fbtn_'+k); if(b) b.classList.remove('active');
+  });
+  const map={'':'all','รอดำเนินการ':'pending','อนุมัติ':'approved','ไม่อนุมัติ':'rejected'};
+  const btn=document.getElementById('fbtn_'+(map[status]||'all'));
+  if (btn) btn.classList.add('active');
+  renderRequestCards(status ? allRequestsCache.filter(r=>r.status===status) : allRequestsCache);
+}
+
+function renderRequestCards(reqs) {
+  const list = document.getElementById('requestCardList');
+  if (!list) return;
+  if (!reqs||reqs.length===0) {
+    list.innerHTML='<div class="text-center text-muted py-4">ไม่มีคำขอ</div>'; return;
+  }
+  const bc  = {"รอดำเนินการ":"warning","อนุมัติ":"success","ไม่อนุมัติ":"danger"};
+  const bdc = {"รอดำเนินการ":"border-warning","อนุมัติ":"border-success","ไม่อนุมัติ":"border-danger"};
+  list.innerHTML = reqs.map(r => `
+    <div class="card mb-2 border-start border-4 ${bdc[r.status]||'border-secondary'} shadow-sm"
+         style="cursor:pointer;border-radius:10px;"
+         onclick='showRequestDetail(${JSON.stringify(r)})'>
+      <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div style="flex:1;">
+            <div class="fw-bold small">${r.requestBy}
+              <span class="badge bg-${bc[r.status]||'secondary'} ms-1">${r.status}</span>
+            </div>
+            <div class="small text-muted">${r.cust}${r.branch?' - '+r.branch:''}</div>
+            <div class="small text-info">${r.jobType||''}</div>
+            <div class="small text-muted">
+              <i class="bi bi-calendar3"></i> ${r.start||''}${r.end&&r.end!==r.start?' → '+r.end:''}
+            </div>
+            ${r.staff && r.status==='อนุมัติ' ? `
+            <div class="small mt-1">
+              <i class="bi bi-people-fill text-success"></i>
+              ${r.staff.split(",").map(s=>`<span class="badge bg-success bg-opacity-75 me-1">${s.trim()}</span>`).join('')}
+            </div>` : ''}
+          </div>
+          <div class="text-end ms-2">
+            ${r.status==='รอดำเนินการ'?`
+              <button class="btn btn-success btn-sm d-block mb-1 w-100"
+                onclick="event.stopPropagation();openApproveModal(${JSON.stringify(r).replace(/"/g,'&quot;')})">
+                <i class="bi bi-check"></i> อนุมัติ</button>
+              <button class="btn btn-danger btn-sm d-block w-100"
+                onclick="event.stopPropagation();openRejectModal('${r.reqId}')">
+                <i class="bi bi-x"></i> ปฏิเสธ</button>`:''}
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function showRequestDetail(req) {
+  const card = document.getElementById('approveDetailCard');
+  if (!card) return;
+  const badge = {"รอดำเนินการ":"warning","อนุมัติ":"success","ไม่อนุมัติ":"danger"};
+  const staffHtml = req.staff
+    ? req.staff.split(",").map(s=>`<span class="badge bg-primary me-1">${s.trim()}</span>`).join('')
+    : '<span class="text-muted">-</span>';
+  card.innerHTML = `
+    <h6 class="fw-bold text-primary mb-2"><i class="bi bi-info-circle"></i> รายละเอียดคำขอ</h6>
+    <table class="table table-sm small mb-2">
+      <tr><th width="35%">Req ID</th><td>${req.reqId}</td></tr>
+      <tr><th>ผู้ขอ</th><td>${req.requestBy}</td></tr>
+      <tr><th>ประเภทงาน</th><td>${req.jobType||'-'}</td></tr>
+      <tr><th>ลูกค้า</th><td>${req.cust}${req.branch?' ('+req.branch+')':''}</td></tr>
+      <tr><th>สถานที่</th><td>${req.location||'-'}</td></tr>
+      <tr><th>วันที่</th><td>${req.start} → ${req.end}</td></tr>
+      <tr><th>เวลา</th><td>${req.sTime} - ${req.eTime}</td></tr>
+      <tr><th>หุ่นยนต์</th><td>${req.robots}</td></tr>
+      <tr><th>หมายเหตุ</th><td>${req.remark||'-'}</td></tr>
+      <tr><th>สถานะ</th><td><span class="badge bg-${badge[req.status]||'secondary'}">${req.status}</span></td></tr>
+      <tr><th>Staff ที่มอบหมาย</th><td>${staffHtml}</td></tr>
+      ${req.reason?'<tr><th>เหตุผล</th><td class="text-danger">'+req.reason+'</td></tr>':""}
+      ${req.approveBy?'<tr><th>ดำเนินการโดย</th><td>'+req.approveBy+'</td></tr>':""}
+    </table>
+    ${req.status==='รอดำเนินการ'?`
+      <div class="d-flex gap-2">
+        <button class="btn btn-success btn-sm flex-fill"
+          onclick='openApproveModal(${JSON.stringify(req).replace(/"/g,"&quot;")})'>
+          <i class="bi bi-check-circle"></i> อนุมัติ</button>
+        <button class="btn btn-danger btn-sm flex-fill"
+          onclick="openRejectModal('${req.reqId}')">
+          <i class="bi bi-x-circle"></i> ไม่อนุมัติ</button>
+      </div>`:''}`;
+}
+
+function openApproveModal(req) {
+  document.getElementById('approve_reqId').value           = req.reqId;
+  document.getElementById('approve_reqId_label').innerText = req.reqId;
+  document.getElementById('ap_start').value    = req.start    || "";
+  document.getElementById('ap_end').value      = req.end      || "";
+  document.getElementById('ap_sTime').value    = req.sTime    || "09:00";
+  document.getElementById('ap_eTime').value    = req.eTime    || "17:00";
+  document.getElementById('ap_cust').value     = req.cust     || "";
+  document.getElementById('ap_branch').value   = req.branch   || "";
+  document.getElementById('ap_location').value = req.location || "";
+  document.getElementById('ap_remark').value   = req.remark   || "";
+  const jt = document.getElementById('ap_jobType');
+  if (jt) jt.value = req.jobType || "";
+  const ab = document.getElementById('ap_brand');
+  if (ab && master.robots) {
+    ab.innerHTML = '<option value="">-- ยี่ห้อ --</option>' +
+      [...new Set(master.robots.map(x => x.brand))].map(b => `<option value="${b}">${b}</option>`).join('');
+  }
+  document.getElementById('ap_model').innerHTML = '<option value="">-- รุ่น --</option>';
+  apRobots = [];
+  if (req.robots) {
+    req.robots.split(",").forEach(function(part) {
+      part = part.trim();
+      const match = part.match(/^(.+?)\s+(.+?)\((\d+)\)$/);
+      if (match) apRobots.push({ brand:match[1].trim(), model:match[2].trim(), qty:match[3] });
+      else if (part) apRobots.push({ brand:part, model:'', qty:1 });
+    });
+  }
+  renderApRobotList();
+  document.getElementById('approveMsg').innerHTML = "";
+  document.getElementById('ap_deptStaffPanel').innerHTML =
+    '<div class="text-muted small text-center py-2"><i class="bi bi-hourglass"></i> กำลังเช็ค Staff ว่าง...</div>';
+  new bootstrap.Modal(document.getElementById('approveModal')).show();
+  loadAvailableStaffByDept();
+}
+
+function filterApRobots() {
+  const b = document.getElementById('ap_brand').value;
+  document.getElementById('ap_model').innerHTML = '<option value="">-- รุ่น --</option>' +
+    master.robots.filter(r => r.brand === b).map(r => `<option value="${r.model}">${r.model}</option>`).join('');
+}
+
+function addApRobotToList() {
+  const b = document.getElementById('ap_brand').value;
+  const m = document.getElementById('ap_model').value;
+  const q = document.getElementById('ap_robotQty').value;
+  if (!b || !m || q <= 0) return alert("ระบุข้อมูลหุ่นยนต์ให้ครบ");
+  apRobots.push({ brand:b, model:m, qty:q });
+  renderApRobotList();
+}
+
+function renderApRobotList() {
+  const d = document.getElementById('apRobotList');
+  if (!d) return;
+  d.innerHTML = apRobots.length === 0
+    ? "<span class='text-muted'>ยังไม่มีรายการ</span>"
+    : apRobots.map((r,i) => `
+        <div class="d-flex justify-content-between p-1 border-bottom small bg-white mb-1">
+          <span>${i+1}. ${r.brand} ${r.model} (<b>${r.qty}</b> ตัว)</span>
+          <i class="bi bi-x-circle text-danger" style="cursor:pointer;"
+             onclick="apRobots.splice(${i},1);renderApRobotList();"></i>
+        </div>`).join('');
+}
+
+function triggerAvailCheck() {
+  clearTimeout(approveAvailTimer);
+  approveAvailTimer = setTimeout(loadAvailableStaffByDept, 600);
+}
+
+function loadAvailableStaffByDept() {
+  const start = document.getElementById('ap_start').value;
+  const end   = document.getElementById('ap_end').value;
+  const sTime = document.getElementById('ap_sTime').value;
+  const eTime = document.getElementById('ap_eTime').value;
+  if (!start||!end) return;
+  const spinner = document.getElementById('availLoadingSpinner');
+  if (spinner) spinner.style.display='inline-block';
+  google.script.run.withSuccessHandler(function(deptMap) {
+    if (spinner) spinner.style.display='none';
+    const panel = document.getElementById('ap_deptStaffPanel');
+    if (!panel) return;
+    const depts = Object.keys(deptMap);
+    if (depts.length===0) { panel.innerHTML='<div class="text-muted small">ไม่มีข้อมูล Staff</div>'; return; }
+    panel.innerHTML = depts.map(dept => `
+      <div class="mb-3">
+        <div class="fw-bold small text-primary border-bottom pb-1 mb-2">
+          <i class="bi bi-people-fill"></i> ${dept}
+        </div>
+        ${deptMap[dept].map(s => `
+          <div class="form-check d-flex align-items-center gap-2 mb-1">
+            <input class="form-check-input ap-chk" type="checkbox"
+              value="${s.name}" id="apchk_${s.name.replace(/\s/g,'_')}"
+              ${!s.available?'disabled':''}>
+            <label class="form-check-label small ${!s.available?'text-muted text-decoration-line-through':'text-dark'}"
+              for="apchk_${s.name.replace(/\s/g,'_')}">
+              ${s.name}
+              <span class="badge ${s.available?'bg-success':'bg-danger'} ms-1" style="font-size:9px;">
+                ${s.available?'ว่าง':'ติดงาน'}
+              </span>
+              ${!s.available && s.busyJobs ? s.busyJobs.map(j =>
+                `<span class="badge bg-warning text-dark ms-1" style="font-size:9px;">
+                  📅 ${j.date} — ${j.cust}
+                </span>`).join('') : ''}
+            </label>
+          </div>`).join('')}
+      </div>`).join('');
+  }).getAvailableStaffByDept(start, end, sTime, eTime);
+}
+
+function confirmApprove() {
+  const reqId    = document.getElementById('approve_reqId').value;
+  const staffArr = Array.from(document.querySelectorAll('.ap-chk:checked')).map(c => c.value);
+  if (apRobots.length === 0) {
+    document.getElementById('approveMsg').innerHTML='<span class="text-danger">❌ กรุณาเพิ่มรายการหุ่นยนต์</span>'; return;
+  }
+  if (staffArr.length === 0) {
+    document.getElementById('approveMsg').innerHTML='<span class="text-danger">❌ กรุณาเลือก Staff อย่างน้อย 1 คน</span>'; return;
+  }
+  // ✅ validate datetime
+  const chk = validateDateTime(
+    document.getElementById('ap_start').value,
+    document.getElementById('ap_end').value,
+    document.getElementById('ap_sTime').value,
+    document.getElementById('ap_eTime').value
+  );
+  if (!chk.ok) { document.getElementById('approveMsg').innerHTML='<span class="text-danger">'+chk.msg+'</span>'; return; }
+  if (chk.warn) { if (!confirm(chk.warn)) return; }
+
+  const obj = {
+    start:    document.getElementById('ap_start').value,
+    end:      document.getElementById('ap_end').value,
+    sTime:    document.getElementById('ap_sTime').value,
+    eTime:    document.getElementById('ap_eTime').value,
+    cust:     document.getElementById('ap_cust').value,
+    branch:   document.getElementById('ap_branch').value,
+    location: document.getElementById('ap_location').value,
+    jobType:  document.getElementById('ap_jobType') ? document.getElementById('ap_jobType').value : "",
+    robots:   apRobots.map(r => `${r.brand} ${r.model}(${r.qty})`).join(", "),
+    remark:   document.getElementById('ap_remark').value,
+    staff:    staffArr
+  };
+  document.getElementById('approveMsg').innerHTML='<span class="text-muted small"><i class="bi bi-hourglass"></i> กำลังบันทึก...</span>';
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('approveMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    if (res.success) setTimeout(function(){
+      bootstrap.Modal.getInstance(document.getElementById('approveModal')).hide();
+      loadAllRequests();
+      const ifr=document.getElementById('approveCalendarIframe'); if(ifr) ifr.src=ifr.src;
+    }, 800);
+  }).approveRequest(reqId, currentUser.name, obj);
+}
+
+function openRejectModal(reqId) {
+  document.getElementById('reject_reqId').value  = reqId;
+  document.getElementById('rejectReason').value  = "";
+  document.getElementById('rejectMsg').innerHTML = "";
+  new bootstrap.Modal(document.getElementById('rejectModal')).show();
+}
+
+function confirmReject() {
+  const reqId  = document.getElementById('reject_reqId').value;
+  const reason = document.getElementById('rejectReason').value.trim();
+  if (!reason) { document.getElementById('rejectMsg').innerHTML='<span class="text-danger">❌ กรุณาระบุเหตุผล</span>'; return; }
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('rejectMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    if (res.success) setTimeout(function(){
+      bootstrap.Modal.getInstance(document.getElementById('rejectModal')).hide();
+      loadAllRequests();
+    }, 800);
+  }).rejectRequest(reqId, currentUser.name, reason);
+}
+
+// ============================================================
+// USER MANAGEMENT
+// ============================================================
+function loadRoleList() {
+  google.script.run.withSuccessHandler(function(roles) {
+    if (!roles||roles.length===0) return;
+    const pages = Object.keys(roles[0].permissions);
+    const cbDiv = document.getElementById('rolePermCheckboxes');
+    if (cbDiv) cbDiv.innerHTML = pages.map(p => `
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" id="perm_${p}" value="${p}">
+        <label class="form-check-label small fw-bold" for="perm_${p}">
+          ${PAGE_CONFIG[p]?PAGE_CONFIG[p].label:p}</label>
+      </div>`).join('');
+    const hdr = document.getElementById('roleTableHeader');
+    if (hdr) hdr.innerHTML = '<th>Role</th>' +
+      pages.map(p=>`<th class="text-center small">${PAGE_CONFIG[p]?PAGE_CONFIG[p].label:p}</th>`).join('') + '<th></th>';
+    const colors = {Management:'danger',Installation:'primary',Sale:'success'};
+    const body = document.getElementById('roleTableBody');
+    if (body) body.innerHTML = roles.map(r => `
+      <tr>
+        <td><span class="badge bg-${colors[r.role]||'secondary'}">${r.role}</span></td>
+        ${pages.map(p=>`<td class="text-center">
+          ${r.permissions[p]
+            ?'<i class="bi bi-check-circle-fill text-success"></i>'
+            :'<i class="bi bi-x-circle text-danger opacity-25"></i>'}
+        </td>`).join('')}
+        <td>
+          <button class="btn btn-warning btn-sm"
+            onclick='openEditRoleModal(${JSON.stringify(r)},${JSON.stringify(pages)})'>
+            <i class="bi bi-pencil"></i></button>
+        </td>
+      </tr>`).join('');
+    const roleOpts = '<option value="">-- เลือก Role --</option>' +
+      roles.map(r=>`<option value="${r.role}">${r.role}</option>`).join('');
+    ['newRole','editU_role'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=roleOpts;});
+  }).getRoleList();
+}
+
+function submitCreateRole() {
+  const name = document.getElementById('newRoleName').value.trim();
+  if (!name) { document.getElementById('roleMsg').innerHTML='<span class="text-danger">❌ กรุณาระบุชื่อ Role</span>'; return; }
+  const perms = {};
+  document.querySelectorAll('#rolePermCheckboxes input').forEach(cb=>perms[cb.value]=cb.checked);
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('roleMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">'+res.msg+'</span>';
+    if (res.success) { document.getElementById('newRoleName').value=""; loadRoleList(); }
+  }).createRole(name, perms);
+}
+
+function openEditRoleModal(role, pages) {
+  document.getElementById('editRoleName').innerText = role.role;
+  const div = document.getElementById('editRolePermCheckboxes');
+  div.innerHTML = pages.map(p => `
+    <div class="form-check form-check-inline">
+      <input class="form-check-input edit-perm-chk" type="checkbox"
+        id="ep_${p}" value="${p}" ${role.permissions[p]?'checked':''}>
+      <label class="form-check-label small fw-bold" for="ep_${p}">
+        ${PAGE_CONFIG[p]?PAGE_CONFIG[p].label:p}</label>
+    </div>`).join('');
+  div.dataset.role = role.role;
+  document.getElementById('editRoleMsg').innerHTML = "";
+  new bootstrap.Modal(document.getElementById('editRoleModal')).show();
+}
+
+function submitUpdateRole() {
+  const name  = document.getElementById('editRolePermCheckboxes').dataset.role;
+  const perms = {};
+  document.querySelectorAll('.edit-perm-chk').forEach(cb=>perms[cb.value]=cb.checked);
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('editRoleMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    if (res.success) setTimeout(function(){
+      bootstrap.Modal.getInstance(document.getElementById('editRoleModal')).hide(); loadRoleList();
+    }, 800);
+  }).updateRole(name, perms);
+}
+
+function confirmDeleteRole() {
+  const name = document.getElementById('editRolePermCheckboxes').dataset.role;
+  if (!confirm("ยืนยันการลบ Role: "+name+"?")) return;
+  google.script.run.withSuccessHandler(function(res) {
+    if (res.success) { bootstrap.Modal.getInstance(document.getElementById('editRoleModal')).hide(); loadRoleList(); }
+    else document.getElementById('editRoleMsg').innerHTML='<span class="text-danger">❌ '+res.msg+'</span>';
+  }).deleteRole(name);
+}
+
+function createUser() {
+  const obj = {
+    fullname: document.getElementById('newFullname').value.trim(),
+    username: document.getElementById('newUsername').value.trim(),
+    password: document.getElementById('newPassword').value.trim(),
+    email:    document.getElementById('newEmail').value.trim(),
+    role:     document.getElementById('newRole').value,
+    dept:     document.getElementById('newDept').value.trim()
+  };
+  if (!obj.fullname||!obj.username||!obj.password||!obj.email||!obj.role) {
+    document.getElementById('userMsg').innerHTML='<span class="text-danger">❌ กรุณากรอกข้อมูลให้ครบ</span>'; return;
+  }
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('userMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">'+res.msg+'</span>';
+    if (res.success) {
+      ['newFullname','newUsername','newPassword','newEmail','newDept'].forEach(id=>document.getElementById(id).value="");
+      document.getElementById('newRole').value="";
+      loadUserList();
+    }
+  }).createUser(obj);
+}
+
+function loadUserList() {
+  const body = document.getElementById('userTableBody');
+  if (body) body.innerHTML='<tr><td colspan="6" class="text-center text-muted"><i class="bi bi-hourglass"></i> กำลังโหลด...</td></tr>';
+  google.script.run.withSuccessHandler(function(users) {
+    if (!body) return;
+    if (!users||users.length===0) {
+      body.innerHTML='<tr><td colspan="6" class="text-center text-muted">ไม่มีข้อมูล</td></tr>'; return;
+    }
+    const colors = {Management:'danger',Installation:'primary',Sale:'success'};
+    body.innerHTML = users.map(u => `
+      <tr>
+        <td>${u.fullname}</td><td>${u.username}</td><td>${u.email}</td>
+        <td><span class="badge bg-${colors[u.role]||'secondary'}">${u.role}</span></td>
+        <td>${u.dept}</td>
+        <td class="text-nowrap">
+          <button class="btn btn-warning btn-sm me-1"
+            onclick='openEditUserModal(${JSON.stringify(u)})'><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-danger btn-sm"
+            onclick="deleteUser('${u.username}')"><i class="bi bi-trash3"></i></button>
+        </td>
+      </tr>`).join('');
+  }).getUserList();
+}
+
+function openEditUserModal(u) {
+  document.getElementById('editU_username').value = u.username;
+  document.getElementById('editU_fullname').value = u.fullname;
+  document.getElementById('editU_email').value    = u.email;
+  document.getElementById('editU_dept').value     = u.dept;
+  document.getElementById('editU_password').value = "";
+  document.getElementById('editUserMsg').innerHTML = "";
+  setTimeout(function(){ const rs=document.getElementById('editU_role'); if(rs) rs.value=u.role; }, 100);
+  new bootstrap.Modal(document.getElementById('editUserModal')).show();
+}
+
+function confirmEditUser() {
+  const obj = {
+    username: document.getElementById('editU_username').value,
+    fullname: document.getElementById('editU_fullname').value.trim(),
+    email:    document.getElementById('editU_email').value.trim(),
+    role:     document.getElementById('editU_role').value,
+    dept:     document.getElementById('editU_dept').value.trim(),
+    password: document.getElementById('editU_password').value.trim()
+  };
+  google.script.run.withSuccessHandler(function(res) {
+    document.getElementById('editUserMsg').innerHTML = res.success
+      ? '<span class="text-success">✅ '+res.msg+'</span>'
+      : '<span class="text-danger">❌ '+res.msg+'</span>';
+    if (res.success) setTimeout(function(){
+      bootstrap.Modal.getInstance(document.getElementById('editUserModal')).hide(); loadUserList();
+    }, 800);
+  }).updateUser(obj);
+}
+
+function deleteUser(username) {
+  if (!confirm("ยืนยันการลบ User: "+username+"?")) return;
+  google.script.run.withSuccessHandler(function(res) {
+    if (res.success) loadUserList(); else alert("❌ "+res.msg);
+  }).deleteUser(username);
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+let _dashData = null;
+let _trendMode = 'day';
+let _custMode  = 'all';
+let _dashPeriod = 'week';
+let _chartTrend = null, _chartJobType = null, _chartStaff = null, _chartDept = null, _chartCust = null;
+
+function initDashboardFilters() {
+  if (!_dashData) return;
+
+  const preserve = (id, data, placeholder) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const cur = el.value;
+    el.innerHTML = `<option value="">${placeholder}</option>` +
+      data.map(x => `<option value="${x}">${x}</option>`).join('');
+    // คืนค่าเดิมเฉพาะถ้ายังมีอยู่ใน list
+    el.value = data.indexOf(cur) > -1 ? cur : '';
+  };
+
+  preserve('dash_dept',    _dashData.deptList  || [], 'ทุกแผนก');
+  preserve('dash_staff',   _dashData.staffList || [], 'ทุก Staff');
+  preserve('dash_cust',    _dashData.custList  || [], 'ทุกลูกค้า');
+  preserve('dash_jobType', _dashData.jobTypes  || [], 'ทุกประเภท');
+
+  updateFilterBadge();
+}
+
+function updateFilterBadge() {
+  const badge = document.getElementById('dashFilterBadge');
+  if (!badge) return;
+  const f = getDashFilter();
+  const parts = [];
+  if (f.dateFrom || f.dateTo) parts.push(`📅 ${f.dateFrom||'?'} → ${f.dateTo||'?'}`);
+  if (f.dept)    parts.push(`🏢 ${f.dept}`);
+  if (f.staff)   parts.push(`👤 ${f.staff}`);
+  if (f.cust)    parts.push(`🏦 ${f.cust}`);
+  if (f.jobType) parts.push(`📋 ${f.jobType}`);
+  if (parts.length === 0) {
+    badge.innerHTML = '<span class="text-white-50 small">ดูข้อมูลทั้งหมด</span>';
+  } else {
+    badge.innerHTML = parts.map(p =>
+      `<span class="badge bg-warning text-dark me-1">${p}</span>`
+    ).join('');
+  }
+}
+
+function resetDashFilter() {
+  ['dash_dept','dash_staff','dash_cust','dash_jobType'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['dash_dateFrom','dash_dateTo'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  _dashPeriod = 'month';
+  document.querySelectorAll('#periodTabGroup .btn').forEach((b,i) => {
+    b.classList.toggle('active', i===1);
+  });
+  document.getElementById('customDateRange').style.display = 'none';
+  loadDashboard();
+}
+
+function setPeriod(p) {
+  _dashPeriod = p;
+  document.querySelectorAll('#periodTabGroup .btn').forEach(b => b.classList.remove('active'));
+  const map = { week:0, month:1, year:2, custom:3 };
+  const btns = document.querySelectorAll('#periodTabGroup .btn');
+  if (btns[map[p]]) btns[map[p]].classList.add('active');
+  const cr = document.getElementById('customDateRange');
+  if (cr) cr.style.display = p === 'custom' ? 'block' : 'none';
+  if (p !== 'custom') loadDashboard();
+}
+
+function getDashFilter() {
+  const now   = new Date();
+  let dateFrom = "", dateTo = "";
+  const pad = n => n.toString().padStart(2,'0');
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  if (_dashPeriod === 'week') {
+    const day = now.getDay() === 0 ? 6 : now.getDay()-1;
+    const mon = new Date(now); mon.setDate(now.getDate()-day);
+    const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+    dateFrom = fmt(mon); dateTo = fmt(sun);
+  } else if (_dashPeriod === 'month') {
+    dateFrom = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+    dateTo   = fmt(new Date(now.getFullYear(), now.getMonth()+1, 0));
+  } else if (_dashPeriod === 'year') {
+    dateFrom = `${now.getFullYear()}-01-01`;
+    dateTo   = `${now.getFullYear()}-12-31`;
+  } else {
+    dateFrom = document.getElementById('dash_dateFrom').value;
+    dateTo   = document.getElementById('dash_dateTo').value;
+  }
+  return {
+    dateFrom,
+    dateTo,
+    dept:    document.getElementById('dash_dept')    ? document.getElementById('dash_dept').value    : "",
+    staff:   document.getElementById('dash_staff')   ? document.getElementById('dash_staff').value   : "",
+    cust:    document.getElementById('dash_cust')    ? document.getElementById('dash_cust').value    : "",
+    jobType: document.getElementById('dash_jobType') ? document.getElementById('dash_jobType').value : ""
+  };
+}
+
+function loadDashboard() {
+  document.getElementById('dashLoading').style.display = 'block';
+  document.getElementById('dashContent').style.opacity = '0.4';
+  google.script.run.withSuccessHandler(function(d) {
+    _dashData = d;
+    document.getElementById('dashLoading').style.display = 'none';
+    document.getElementById('dashContent').style.opacity = '1';
+    initDashboardFilters(); // ✅ เติม filter หลังได้ข้อมูล
+    renderDashboard(d);
+  }).getDashboardData(getDashFilter());
+}
+
+function renderDashboard(d) {
+  // KPI
+  document.getElementById('kpi_total').innerText  = d.kpi.total;
+  document.getElementById('kpi_new').innerText     = d.kpi.newJob;
+  document.getElementById('kpi_inprog').innerText  = d.kpi.inProgress;
+  document.getElementById('kpi_done').innerText    = d.kpi.done;
+
+  // ✅ หัวข้อ dynamic
+  const f = getDashFilter();
+  const suffix = f.staff   ? f.staff
+               : f.dept    ? `แผนก ${f.dept}`
+               : f.cust    ? f.cust
+               : 'ทั้งหมด';
+
+  const staffTitle = document.getElementById('staffChartTitle');
+  const custTitle  = document.getElementById('custChartTitle');
+  if (staffTitle) staffTitle.innerText = `ปริมาณงาน — ${suffix}`;
+  if (custTitle)  custTitle.innerText  = `ปริมาณลูกค้า — ${suffix}`;
+
+  // ✅ หัวข้อ Heatmap + Ranking ตามวันที่
+  const periodLabel = getPeriodLabel();
+  const hmTitle  = document.getElementById('heatmapTitle');
+  const rkTitle  = document.getElementById('rankingTitle');
+  if (hmTitle) hmTitle.innerText = `Heatmap — Staff × ${periodLabel}`;
+  if (rkTitle) rkTitle.innerText = `Staff Ranking — ${periodLabel}`;
+
+  renderTrendChart(d);
+  renderJobTypeChart(d);
+  renderStaffChart(d);
+  renderDeptChart(d);
+  renderCustChart(d);
+  renderHeatmap(d);
+  renderStaffRanking(d);
+}
+
+function getPeriodLabel() {
+  const f = getDashFilter();
+  if (_dashPeriod === 'week')   return 'สัปดาห์นี้';
+  if (_dashPeriod === 'month')  return 'เดือนนี้';
+  if (_dashPeriod === 'year')   return 'ปีนี้';
+  if (_dashPeriod === 'custom' && f.dateFrom && f.dateTo)
+    return `${f.dateFrom} ถึง ${f.dateTo}`;
+  return 'ทั้งหมด';
+}
+
+const CHART_COLORS = ['#667eea','#f5576c','#43e97b','#4facfe','#f093fb','#fda085','#a18cd1','#fbc2eb','#84fab0','#8fd3f4'];
+
+function destroyChart(c) { if (c) { try { c.destroy(); } catch(e){} } }
+
+function setTrendMode(m) {
+  _trendMode = m;
+  ['month','week','day'].forEach(k => {
+    const b = document.getElementById('trendBtn_'+k);
+    if (b) b.classList.toggle('active', k===m);
+  });
+  if (_dashData) renderTrendChart(_dashData);
+}
+
+function renderTrendChart(d) {
+  destroyChart(_chartTrend);
+  const trendMap = {
+    day:   d.trendDay,
+    week:  d.trendWeek,
+    month: d.trendMonth,
+    year:  d.trendYear
+  };
+  const t = trendMap[_trendMode] || d.trendMonth;
+  const ctx = document.getElementById('chartTrend');
+  if (!ctx) return;
+  _chartTrend = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: t.labels,
+      datasets: [{
+        label: 'จำนวนงาน',
+        data: t.values,
+        borderColor: '#667eea',
+        backgroundColor: 'rgba(102,126,234,0.15)',
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#667eea',
+        pointRadius: 5,
+        pointHoverRadius: 7
+      }]
+    },
+    options: {
+      responsive: true,
+      interaction: { intersect:false, mode:'index' },
+      plugins: {
+        legend: { display:false },
+        tooltip: {
+          callbacks: {
+            title: function(items) { return 'วันที่: ' + items[0].label; },
+            label: function(item)  { return 'งาน: ' + item.raw + ' งาน'; }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero:true, ticks:{ stepSize:1 }, title:{ display:true, text:'จำนวนงาน' } },
+        x: { ticks:{ maxRotation:45 } }
+      }
+    }
+  });
+}
+
+function makeDoughnutWithPct(canvasId, labels, values, destroyRef) {
+  destroyChart(destroyRef);
+  const ctx = document.getElementById(canvasId);
+  if (!ctx || !values.length) return null;
+  const total = values.reduce((a,b) => a+b, 0);
+  const pcts  = values.map(v => total > 0 ? Math.round(v/total*100) : 0);
+  return new Chart(ctx.getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{ data: pcts, backgroundColor: CHART_COLORS, borderWidth: 2 }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position:'bottom', labels:{ font:{ size:11 },
+          generateLabels: function(chart) {
+            return chart.data.labels.map((label,i) => ({
+              text: `${label} ${pcts[i]}%`,
+              fillStyle: CHART_COLORS[i % CHART_COLORS.length],
+              index: i
+            }));
+          }
+        }},
+        tooltip: {
+          callbacks: {
+            label: function(item) {
+              return ` ${item.label}: ${pcts[item.dataIndex]}% (${values[item.dataIndex]} งาน)`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: 'centerPct',
+      afterDraw(chart) {
+        const { ctx, chartArea:{ width, height, left, top } } = chart;
+        const cx = left + width/2, cy = top + height/2;
+        ctx.save();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = 'bold 20px sans-serif'; ctx.fillStyle = '#333';
+        ctx.fillText(total + ' งาน', cx, cy);
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+function renderJobTypeChart(d) {
+  _chartJobType = makeDoughnutWithPct(
+    'chartJobType',
+    d.jobTypeStats.map(x => x.label),
+    d.jobTypeStats.map(x => x.value),
+    _chartJobType
+  );
+}
+
+function renderDeptChart(d) {
+  _chartDept = makeDoughnutWithPct(
+    'chartDept',
+    d.deptStats.map(x => x.dept),
+    d.deptStats.map(x => x.total),
+    _chartDept
+  );
+}
+
+function renderStaffChart(d) {
+  destroyChart(_chartStaff);
+  const ctx = document.getElementById('chartStaff');
+  if (!ctx || !d.staffStats.length) return;
+  const top = d.staffStats.slice(0,15);
+  _chartStaff = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: top.map(s=>s.name),
+      datasets: [
+        { label:'งานใหม่',          data:top.map(s=>s.newJob),     backgroundColor:'#ffc107' },
+        { label:'กำลังดำเนินการ',   data:top.map(s=>s.inProgress), backgroundColor:'#17a2b8' },
+        { label:'เสร็จสิ้น',        data:top.map(s=>s.done),       backgroundColor:'#28a745' }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend:{ position:'bottom' } },
+      scales: { x:{ stacked:true }, y:{ stacked:true, beginAtZero:true, ticks:{ stepSize:1 } } }
+    }
+  });
+}
+
+
+function setCustMode(m) {
+  _custMode = m;
+  ['all','type'].forEach(k => {
+    const b = document.getElementById('custBtn_'+k);
+    if (b) b.classList.toggle('active', k===m);
+  });
+  if (_dashData) renderCustChart(_dashData);
+}
+
+function renderCustChart(d) {
+  destroyChart(_chartCust);
+  const ctx = document.getElementById('chartCust');
+  if (!ctx || !d.custStats.length) return;
+  const top = d.custStats.slice(0,12);
+  let datasets = [];
+  if (_custMode === 'all') {
+    datasets = [{ label:'งานทั้งหมด', data:top.map(c=>c.total), backgroundColor:CHART_COLORS }];
+  } else {
+    const types = [...new Set(d.custStats.flatMap(c=>Object.keys(c.byType)))];
+    datasets = types.map((t,i) => ({
+      label: t,
+      data: top.map(c => c.byType[t]||0),
+      backgroundColor: CHART_COLORS[i % CHART_COLORS.length]
+    }));
+  }
+  _chartCust = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: { labels: top.map(c=>c.name), datasets },
+    options: {
+      responsive: true,
+      plugins: { legend:{ position:'bottom' } },
+      scales: {
+        x: { stacked: _custMode==='type' },
+        y: { stacked: _custMode==='type', beginAtZero:true, ticks:{ stepSize:1 } }
+      }
+    }
+  });
+}
+
+function renderHeatmap(d) {
+  const div = document.getElementById('heatmapTable');
+  if (!div) return;
+  const days = d.dowLabels || ['จ','อ','พ','พฤ','ศ','ส','อา'];
+  const names = Object.keys(d.heatMap);
+  if (!names.length) { div.innerHTML='<p class="text-muted small text-center">ไม่มีข้อมูล</p>'; return; }
+
+  // หาค่า max
+  let maxVal = 1;
+  names.forEach(n => d.heatMap[n].forEach(v => { if(v>maxVal) maxVal=v; }));
+
+  let html = '<table class="table table-sm table-bordered small text-center mb-0" style="min-width:300px;">';
+  html += '<thead><tr><th class="text-start">Staff</th>' + days.map(d=>`<th>${d}</th>`).join('') + '</tr></thead><tbody>';
+  names.forEach(name => {
+    html += `<tr><td class="text-start fw-bold small" style="white-space:nowrap;">${name}</td>`;
+    d.heatMap[name].forEach(v => {
+      const opacity = v === 0 ? 0 : 0.15 + (v/maxVal)*0.75;
+      const bg = v === 0 ? '#f8f9fa' : `rgba(102,126,234,${opacity.toFixed(2)})`;
+      const color = opacity > 0.5 ? 'white' : '#333';
+      html += `<td style="background:${bg};color:${color};font-weight:${v?'bold':'normal'};">${v||''}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+function renderStaffRanking(d) {
+  const div = document.getElementById('staffRankingTable');
+  if (!div) return;
+  if (!d.staffStats.length) { div.innerHTML='<p class="text-muted small text-center">ไม่มีข้อมูล</p>'; return; }
+  let html = '<table class="table table-sm small mb-0">';
+  html += '<thead><tr><th>#</th><th>Staff</th><th>แผนก</th><th class="text-center">ทั้งหมด</th><th class="text-center">เสร็จ</th></tr></thead><tbody>';
+  const medals = ['🥇','🥈','🥉'];
+  d.staffStats.forEach((s,i) => {
+    const pct = s.total > 0 ? Math.round(s.done/s.total*100) : 0;
+    html += `<tr>
+      <td>${medals[i]||i+1}</td>
+      <td class="fw-bold">${s.name}</td>
+      <td><span class="badge bg-light text-dark border" style="font-size:9px;">${s.dept}</span></td>
+      <td class="text-center"><span class="badge bg-primary">${s.total}</span></td>
+      <td class="text-center">
+        <div class="d-flex align-items-center gap-1">
+          <div class="progress flex-fill" style="height:6px;">
+            <div class="progress-bar bg-success" style="width:${pct}%"></div>
+          </div>
+          <span style="font-size:9px;">${pct}%</span>
+        </div>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+// ============================================================
+// SESSION TIMEOUT
+// ============================================================
+var SESSION_TIMEOUT = 10 * 60 * 1000; // 10 นาที (ms)
+var _sessionTimer   = null;
+var _lastPage       = null;
+
+function resetSessionTimer() {
+  clearTimeout(_sessionTimer);
+  _sessionTimer = setTimeout(function() {
+    // หมดเวลา → ออก login
+    currentUser = null;
+    showLogin();
+  }, SESSION_TIMEOUT);
+}
+
+function refreshPageData() {
+  // ดึงข้อมูลใหม่โดยไม่ออก login
+  initData();
+  if (_lastPage) {
+    if (_lastPage === 'todo')    loadUserTasks();
+    if (_lastPage === 'add')     loadJobsByFilter();
+    if (_lastPage === 'request') loadMyRequests();
+    if (_lastPage === 'approve') loadAllRequests();
+    if (_lastPage === 'users')   { loadUserList(); loadRoleList(); }
+    if (_lastPage === 'dashboard') loadDashboard();
+  }
+}
+</script>

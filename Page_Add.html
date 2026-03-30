@@ -1,0 +1,250 @@
+<div class="row g-3">
+
+  <!-- คอลัมน์ซ้าย -->
+  <div class="col-lg-5 d-flex flex-column gap-3">
+
+    <!-- Form -->
+    <div class="card p-4 shadow-sm border-0" style="border-radius:15px;">
+      <h6 class="fw-bold text-primary mb-3"><i class="bi bi-plus-circle-fill"></i> ADD SERVICE PLAN V7.7</h6>
+
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="small fw-bold text-secondary">วันที่เริ่ม</label>
+          <input type="date" id="start" class="form-control form-control-sm" onchange="triggerAddPlanStaff()">
+        </div>
+        <div class="col-6">
+          <label class="small fw-bold text-secondary">วันที่สิ้นสุด</label>
+          <input type="date" id="end" class="form-control form-control-sm" onchange="triggerAddPlanStaff()">
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="small fw-bold text-secondary">เวลาเริ่ม</label>
+          <input type="time" id="sTime" class="form-control form-control-sm" value="09:00" onchange="triggerAddPlanStaff()">
+        </div>
+        <div class="col-6">
+          <label class="small fw-bold text-secondary">เวลาเสร็จ</label>
+          <input type="time" id="eTime" class="form-control form-control-sm" value="17:00" onchange="triggerAddPlanStaff()">
+        </div>
+      </div>
+
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">สถานที่</label>
+        <input type="text" id="mapSearch" class="form-control form-control-sm" placeholder="ระบุที่อยู่ลูกค้า">
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">ลูกค้า</label>
+        <select id="custSelect" class="form-select form-select-sm" onchange="fillBranch()">
+          <option value="">-- เลือกบริษัทลูกค้า --</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">สาขา</label>
+        <select id="branchSelect" class="form-select form-select-sm">
+          <option value="">-- เลือกสาขา --</option>
+        </select>
+      </div>
+
+      <!-- ประเภทงาน -->
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">ประเภทงาน <span class="text-danger">*</span></label>
+        <select id="jobType" class="form-select form-select-sm">
+          <option value="">-- เลือกประเภทงาน --</option>
+        </select>
+      </div>
+
+      <!-- หุ่นยนต์ -->
+      <div class="p-2 border rounded bg-light mb-2">
+        <label class="small fw-bold text-primary mb-2 d-block">รายการหุ่นยนต์</label>
+        <div class="row g-1 mb-2">
+          <div class="col-4">
+            <select id="brand" class="form-select form-select-sm" onchange="filterRobots()">
+              <option value="">-- ยี่ห้อ --</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <select id="model" class="form-select form-select-sm">
+              <option value="">-- รุ่น --</option>
+            </select>
+          </div>
+          <div class="col-2">
+            <input type="number" id="robotQty" class="form-control form-control-sm" value="1" min="1">
+          </div>
+          <div class="col-2">
+            <button class="btn btn-success btn-sm w-100" onclick="addRobotToList()">
+              <i class="bi bi-plus-lg"></i>
+            </button>
+          </div>
+        </div>
+        <div id="selectedRobotList" class="small text-muted border-top pt-1 mt-1">ยังไม่มีรายการ</div>
+      </div>
+
+      <!-- Staff -->
+      <div class="mb-2">
+        <label class="small fw-bold text-secondary">มอบหมายแผนก</label>
+        <select id="deptSelect" class="form-select form-select-sm mb-2" onchange="showStaffByDept()">
+          <option value="">-- แผนก --</option>
+        </select>
+        <div id="staffList"
+          style="max-height:120px;overflow-y:auto;background:white;
+                 border:1px solid #dee2e6;border-radius:8px;padding:10px;">
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="small fw-bold text-secondary">หมายเหตุ</label>
+        <textarea id="remark" class="form-control form-control-sm" rows="2"></textarea>
+      </div>
+
+      <button class="btn btn-primary w-100 fw-bold" id="saveBtn" onclick="save()">
+        <i class="bi bi-save-fill"></i> บันทึกแผนงาน
+      </button>
+    </div>
+
+    <!-- แผนงานที่ยังไม่ผ่าน -->
+    <div class="card p-3 border-0 shadow-sm" style="border-radius:15px;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold text-primary mb-0 small">
+          <i class="bi bi-calendar2-check"></i> แผนงานที่ยังไม่ผ่าน
+          <span id="jobCount" class="badge bg-primary ms-1">0</span>
+        </h6>
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadJobsByFilter()">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div class="mb-2">
+        <input type="text" id="jobSearch" class="form-control form-control-sm"
+          placeholder="🔍 ค้นหา ลูกค้า / Staff / หุ่นยนต์" oninput="searchJobs()">
+      </div>
+      <div style="max-height:450px;overflow-y:auto;">
+        <table class="table table-sm table-hover small mb-0">
+          <tbody id="filterTableBody">
+            <tr><td colspan="2" class="text-center text-muted py-3">กำลังโหลด...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- คอลัมน์ขวา: Calendar -->
+  <div class="col-lg-7">
+    <div class="card p-2 shadow-sm border-0 sticky-top" style="border-radius:15px;top:80px;">
+      <iframe id="calendarIframe"
+        src="https://calendar.google.com/calendar/embed?src=3vsvb0a1nblh7odvi0qecsb0a0%40group.calendar.google.com&ctz=Asia%2FBangkok"
+        style="border:0;border-radius:12px;" width="100%" height="750"
+        frameborder="0" scrolling="no">
+      </iframe>
+    </div>
+  </div>
+
+</div>
+
+<!-- Edit Job Modal -->
+<div class="modal fade" id="editJobModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h6 class="modal-title fw-bold">
+          <i class="bi bi-pencil-square"></i> แก้ไขแผนงาน: <span id="editJobId_label"></span>
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editJobId">
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">วันที่เริ่ม</label>
+            <input type="date" id="edit_start" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">วันที่สิ้นสุด</label>
+            <input type="date" id="edit_end" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">เวลาเริ่ม</label>
+            <input type="time" id="edit_sTime" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">เวลาเสร็จ</label>
+            <input type="time" id="edit_eTime" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">ลูกค้า</label>
+            <input type="text" id="edit_cust" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="small fw-bold text-secondary">สาขา</label>
+            <input type="text" id="edit_branch" class="form-control form-control-sm">
+          </div>
+          <div class="col-12">
+            <label class="small fw-bold text-secondary">สถานที่</label>
+            <input type="text" id="edit_location" class="form-control form-control-sm">
+          </div>
+
+          <!-- ประเภทงาน -->
+          <div class="col-12">
+            <label class="small fw-bold text-secondary">ประเภทงาน</label>
+            <select id="edit_jobType" class="form-select form-select-sm">
+              <option value="">-- เลือกประเภทงาน --</option>
+            </select>
+          </div>
+
+          <!-- หุ่นยนต์ -->
+          <div class="col-12">
+            <div class="p-2 border rounded bg-light">
+              <label class="small fw-bold text-primary mb-2 d-block">รายการหุ่นยนต์</label>
+              <div class="row g-1 mb-2">
+                <div class="col-4">
+                  <select id="edit_brand" class="form-select form-select-sm" onchange="filterEditRobots()">
+                    <option value="">-- ยี่ห้อ --</option>
+                  </select>
+                </div>
+                <div class="col-4">
+                  <select id="edit_model" class="form-select form-select-sm">
+                    <option value="">-- รุ่น --</option>
+                  </select>
+                </div>
+                <div class="col-2">
+                  <input type="number" id="edit_robotQty" class="form-control form-control-sm" value="1" min="1">
+                </div>
+                <div class="col-2">
+                  <button class="btn btn-success btn-sm w-100" onclick="addEditRobotToList()">
+                    <i class="bi bi-plus-lg"></i>
+                  </button>
+                </div>
+              </div>
+              <div id="editRobotList" class="small text-muted border-top pt-1 mt-1">ยังไม่มีรายการ</div>
+            </div>
+          </div>
+
+          <!-- Staff -->
+          <div class="col-12">
+            <label class="small fw-bold text-secondary">มอบหมายแผนก</label>
+            <select id="edit_deptSelect" class="form-select form-select-sm mb-2" onchange="showEditStaffByDept()">
+              <option value="">-- แผนก --</option>
+            </select>
+            <div id="edit_staffList"
+              style="max-height:120px;overflow-y:auto;background:white;
+                     border:1px solid #dee2e6;border-radius:8px;padding:10px;">
+              <span class="text-muted small">เลือกแผนกก่อน</span>
+            </div>
+          </div>
+
+          <!-- หมายเหตุ -->
+          <div class="col-12">
+            <label class="small fw-bold text-secondary">หมายเหตุ</label>
+            <textarea id="edit_remark" class="form-control form-control-sm" rows="2"></textarea>
+          </div>
+        </div>
+        <div id="editJobMsg" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+        <button class="btn btn-warning fw-bold" onclick="confirmEditJob()">
+          <i class="bi bi-save-fill"></i> บันทึกการแก้ไข
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,195 @@
+<div class="row g-2">
+
+  <!-- ซ้าย: รายการคำขอ -->
+  <div class="col-lg-4">
+    <div class="card shadow-sm border-0 h-100" style="border-radius:15px;">
+      <div class="card-header bg-white border-0 pt-3 pb-0">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="fw-bold text-warning mb-0">
+            <i class="bi bi-clipboard2-check-fill"></i> คำขอทั้งหมด
+          </h6>
+          <button class="btn btn-outline-secondary btn-sm" onclick="loadAllRequests()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+        <div class="d-flex gap-1 flex-wrap mb-2">
+          <button class="btn btn-sm btn-secondary active" onclick="filterApproveStatus('')" id="fbtn_all">ทั้งหมด</button>
+          <button class="btn btn-sm btn-warning" onclick="filterApproveStatus('รอดำเนินการ')" id="fbtn_pending">รอ</button>
+          <button class="btn btn-sm btn-success" onclick="filterApproveStatus('อนุมัติ')" id="fbtn_approved">อนุมัติ</button>
+          <button class="btn btn-sm btn-danger" onclick="filterApproveStatus('ไม่อนุมัติ')" id="fbtn_rejected">ไม่อนุมัติ</button>
+        </div>
+      </div>
+      <div class="card-body p-2" style="overflow-y:auto;max-height:680px;">
+        <div id="requestCardList">
+          <div class="text-center text-muted py-4"><i class="bi bi-hourglass"></i> กำลังโหลด...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ขวา: Detail + Calendar -->
+  <div class="col-lg-8">
+    <div class="card p-2 shadow-sm mb-2" style="border-radius:15px;">
+      <iframe id="approveCalendarIframe"
+        src="https://calendar.google.com/calendar/embed?src=3vsvb0a1nblh7odvi0qecsb0a0%40group.calendar.google.com&ctz=Asia%2FBangkok"
+        style="border:0" width="100%" height="400" frameborder="0" scrolling="no">
+      </iframe>
+    </div>
+    <div class="card p-3 shadow-sm border-0" style="border-radius:15px;" id="approveDetailCard">
+      <div class="text-center text-muted py-3">
+        <i class="bi bi-hand-index-thumb fs-2"></i>
+        <p class="mt-2 small">เลือกคำขอจากรายการทางซ้าย</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal อนุมัติ -->
+<div class="modal fade" id="approveModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h6 class="modal-title fw-bold">
+          <i class="bi bi-check-circle-fill"></i> อนุมัติคำขอ: <span id="approve_reqId_label"></span>
+        </h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="approve_reqId">
+        <div class="row g-3">
+
+          <!-- ซ้าย: แก้ไขข้อมูล -->
+          <div class="col-md-6">
+            <h6 class="fw-bold text-secondary mb-2"><i class="bi bi-pencil-square"></i> แก้ไขข้อมูล</h6>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">วันที่เริ่ม <span class="text-danger">*</span></label>
+                <input type="date" id="ap_start" class="form-control form-control-sm" onchange="triggerAvailCheck()">
+              </div>
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">วันที่สิ้นสุด <span class="text-danger">*</span></label>
+                <input type="date" id="ap_end" class="form-control form-control-sm" onchange="triggerAvailCheck()">
+              </div>
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">เวลาเริ่ม</label>
+                <input type="time" id="ap_sTime" class="form-control form-control-sm" onchange="triggerAvailCheck()">
+              </div>
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">เวลาเสร็จ</label>
+                <input type="time" id="ap_eTime" class="form-control form-control-sm" onchange="triggerAvailCheck()">
+              </div>
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">ลูกค้า</label>
+                <input type="text" id="ap_cust" class="form-control form-control-sm">
+              </div>
+              <div class="col-6">
+                <label class="small fw-bold text-secondary">สาขา</label>
+                <input type="text" id="ap_branch" class="form-control form-control-sm">
+              </div>
+              <div class="col-12">
+                <label class="small fw-bold text-secondary">สถานที่</label>
+                <input type="text" id="ap_location" class="form-control form-control-sm">
+              </div>
+              <div class="col-12">
+                <label class="small fw-bold text-secondary">ประเภทงาน</label>
+                <select id="ap_jobType" class="form-select form-select-sm">
+                  <option value="">-- เลือกประเภทงาน --</option>
+                  <option value="ประชุม">📋 ประชุม</option>
+                  <option value="MA / ซ่อมเคส">🔧 MA / ซ่อมเคส</option>
+                  <option value="Install">🤖 Install</option>
+                  <option value="PM">⚙️ PM</option>
+                  <option value="Demo">🎯 Demo</option>
+                  <option value="Service">🛠️ Service</option>
+                </select>
+              </div>
+
+              <!-- ✅ หุ่นยนต์แบบ Add Plan -->
+              <div class="col-12">
+                <div class="p-2 border rounded bg-light">
+                  <label class="small fw-bold text-primary mb-2 d-block">รายการหุ่นยนต์</label>
+                  <div class="row g-1 mb-2">
+                    <div class="col-4">
+                      <select id="ap_brand" class="form-select form-select-sm" onchange="filterApRobots()">
+                        <option value="">-- ยี่ห้อ --</option>
+                      </select>
+                    </div>
+                    <div class="col-4">
+                      <select id="ap_model" class="form-select form-select-sm">
+                        <option value="">-- รุ่น --</option>
+                      </select>
+                    </div>
+                    <div class="col-2">
+                      <input type="number" id="ap_robotQty" class="form-control form-control-sm" value="1" min="1">
+                    </div>
+                    <div class="col-2">
+                      <button class="btn btn-success btn-sm w-100" onclick="addApRobotToList()">
+                        <i class="bi bi-plus-lg"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div id="apRobotList" class="small text-muted border-top pt-1 mt-1">ยังไม่มีรายการ</div>
+                </div>
+              </div>
+
+              <div class="col-12">
+                <label class="small fw-bold text-secondary">หมายเหตุ</label>
+                <textarea id="ap_remark" class="form-control form-control-sm" rows="2"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- ขวา: Staff ว่างแยกแผนก -->
+          <div class="col-md-6">
+            <h6 class="fw-bold text-secondary mb-2">
+              <i class="bi bi-people-fill"></i> มอบหมาย Staff
+              <span id="availLoadingSpinner" class="spinner-border spinner-border-sm text-secondary ms-1"
+                style="display:none;"></span>
+            </h6>
+            <div id="ap_deptStaffPanel"
+              style="max-height:420px;overflow-y:auto;border:1px solid #dee2e6;border-radius:8px;padding:10px;">
+              <div class="text-muted small text-center py-3">
+                <i class="bi bi-info-circle"></i> ระบุวันที่และเวลาก่อน
+              </div>
+            </div>
+            <div class="mt-2 small">
+              <span class="badge bg-success me-1">●</span>ว่าง
+              <span class="badge bg-danger ms-2 me-1">●</span>ติดงาน
+            </div>
+          </div>
+
+        </div>
+        <div id="approveMsg" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+        <button class="btn btn-success fw-bold" onclick="confirmApprove()">
+          <i class="bi bi-check-circle-fill"></i> อนุมัติ
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal ปฏิเสธ -->
+<div class="modal fade" id="rejectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h6 class="modal-title fw-bold"><i class="bi bi-x-circle-fill"></i> ไม่อนุมัติคำขอ</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="reject_reqId">
+        <label class="small fw-bold text-secondary">เหตุผล <span class="text-danger">*</span></label>
+        <textarea id="rejectReason" class="form-control mt-1" rows="3" placeholder="ระบุเหตุผล..."></textarea>
+        <div id="rejectMsg" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">ยกเลิก</button>
+        <button class="btn btn-danger fw-bold" onclick="confirmReject()">
+          <i class="bi bi-x-circle-fill"></i> ยืนยัน
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
