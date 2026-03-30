@@ -7,6 +7,7 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+//
 function include(filename) {
   try { return HtmlService.createHtmlOutputFromFile(filename).getContent(); }
   catch(e) { return ""; }
